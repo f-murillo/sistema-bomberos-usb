@@ -72,7 +72,7 @@ export const obtenerGuardias = async (req: Request, res: Response) => {
     }
 
     const snapshot = await query.limit(pageSize).get();
-    const guardias = snapshot.docs.map(doc => ({
+    const guardias = snapshot.docs.map((doc: any) => ({
       id: doc.id,
       ...doc.data(),
       // Convertir timestamps de Firebase a Date si es necesario

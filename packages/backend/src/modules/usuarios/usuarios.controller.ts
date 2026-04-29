@@ -92,7 +92,7 @@ export const obtenerUsuarios = async (req: Request, res: Response) => {
         }
 
         const snapshot = await query.limit(pageSize).get();
-        const usuarios = snapshot.docs.map(doc => {
+        const usuarios = snapshot.docs.map((doc: any) => {
             const data = doc.data();
             return {
                 ...data,
