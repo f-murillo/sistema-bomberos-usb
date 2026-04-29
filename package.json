@@ -1,0 +1,12 @@
+{
+  "name": "sistema-bomberos-usb",
+  "private": true,
+  "description": "Monorepo para la gestión de guardias de bomberos",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r dev"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
+  }
+}

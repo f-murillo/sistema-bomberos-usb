@@ -1,0 +1,6 @@
+packages:
+  # Todos los paquetes en subdirectorios de la carpeta packages/
+  - 'packages/*'
+allowBuilds:
+  '@firebase/util': true
+  protobufjs: true
