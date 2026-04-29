@@ -1,6 +1,6 @@
 import { auth } from '@/config/firebase';
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://sistema-bomberos-usb.onrender.com';
 
 /**
  * Función base para hacer peticiones al backend autenticadas
