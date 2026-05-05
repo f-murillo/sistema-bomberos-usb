@@ -108,6 +108,30 @@ export const obtenerUsuarios = async (req: Request, res: Response) => {
     }
 };
 
+// Obtener un usuario por ID (R)
+export const obtenerUsuario = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userDoc = await db.collection("usuarios").doc(id).get();
+
+        if (!userDoc.exists) {
+            return res.status(404).json({ message: "Usuario no encontrado" });
+        }
+
+        const data = userDoc.data();
+        const usuario = {
+            ...data,
+            fechaRegistro: data?.fechaRegistro?.toDate ? data.fechaRegistro.toDate() : data?.fechaRegistro,
+            ultimaActualizacion: data?.ultimaActualizacion?.toDate ? data.ultimaActualizacion.toDate() : data?.ultimaActualizacion
+        };
+
+        res.status(200).json(usuario);
+    } catch (error: any) {
+        console.error("Error al obtener usuario:", error);
+        res.status(500).json({ message: "Error al obtener el usuario" });
+    }
+};
+
 // Actualizar usuario (U)
 export const actualizarUsuario = async (req: Request, res: Response) => {
     try {

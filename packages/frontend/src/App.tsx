@@ -5,12 +5,13 @@ import LoginPage from './pages/LoginPage'
 import UsuariosPage from './pages/UsuariosPage'
 import GuardiasPage from './pages/GuardiasPage'
 import AuditoriaPage from './pages/AuditoriaPage'
+import ArrestosPage from './pages/ArrestosPage'
 import MainLayout from './components/layout/MainLayout'
 import { useQuery } from '@tanstack/react-query'
 import { api } from './lib/api'
 import { useNavigate } from 'react-router-dom'
 import { Button } from './components/ui/button'
-import { ArrowRight, Calendar, AlertCircle, Clock } from 'lucide-react'
+import { ArrowRight, Calendar, AlertCircle, Clock, ShieldAlert } from 'lucide-react'
 
 // Configuración de TanStack Query
 const queryClient = new QueryClient({
@@ -35,24 +36,34 @@ const Dashboard = () => {
     staleTime: 5 * 60 * 1000, // Los datos se consideran "frescos" por 5 min para evitar recargas al navegar
   });
 
+  // Obtenemos el perfil actualizado para tener los minutos de arresto siempre al día
+  const { data: userProfile, isLoading: isProfileLoading } = useQuery({
+    queryKey: ['profile', userData?.uid],
+    queryFn: () => api.get<any>(`/usuarios/${userData?.uid}`),
+    enabled: !!userData?.uid,
+    refetchInterval: 30000,
+  });
+
   const guardias = guardiasData || [];
+
+  const balanceArresto = userProfile?.minutosArresto || userData?.minutosArresto || 0;
+  const horasCompletas = Math.floor(balanceArresto / 60);
+  const minutosRestantes = balanceArresto % 60;
 
   // Filtramos las guardias por estado usando los estados correctos del schema
   const guardiasPendientes = guardias.filter((g: any) => g.estado === 'PENDIENTE');
-  const guardiasEnCurso = guardias.filter((g: any) => g.estado === 'EN_CURSO');
-
 
   // Filtros específicos para el bombero logueado
   const misPendientes = guardiasPendientes.filter((g: any) => g.bomberoId === userData?.uid);
-  const misEnCurso = guardiasEnCurso.filter((g: any) => g.bomberoId === userData?.uid);
 
   // Función para ordenar por fecha más cercana
-  const ordenarPorFecha = (arr: any[]) => [...arr].sort((a, b) => 
-    new Date(a.fechaInicio).getTime() - new Date(b.fechaInicio).getTime()
-  );
+  const ordenarPorFecha = (arr: any[]) => [...arr].sort((a, b) => {
+    const dateA = a.fecha?.toDate ? a.fecha.toDate() : new Date(a.fecha);
+    const dateB = b.fecha?.toDate ? b.fecha.toDate() : new Date(b.fecha);
+    return dateA.getTime() - dateB.getTime();
+  });
 
   const miProxima = ordenarPorFecha(misPendientes)[0];
-  const miActual = misEnCurso[0];
   const proximaGlobal = ordenarPorFecha(guardiasPendientes)[0];
 
   return (
@@ -72,18 +83,11 @@ const Dashboard = () => {
               </h3>
               {isLoading ? <SkeletonLoader /> : (
                 <>
-                  {miActual ? (
-                    <div>
-                      <p className="text-xl font-bold text-green-600">Tienes una guardia en curso</p>
-                      <p className="text-sm text-slate-500 mt-1">
-                        Iniciada hoy a las {new Date(miActual.fechaInicio).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                      </p>
-                    </div>
-                  ) : miProxima ? (
+                  {miProxima ? (
                     <div>
                       <p className="text-xl font-bold text-slate-900">Tienes una guardia próxima pendiente</p>
                       <p className="text-sm text-slate-500 mt-1">
-                        Programada para el {new Date(miProxima.fechaInicio).toLocaleDateString()}
+                        Programada para el {format(miProxima.fecha?.toDate ? miProxima.fecha.toDate() : new Date(miProxima.fecha), 'dd/MM/yyyy')}
                       </p>
                     </div>
                   ) : (
@@ -100,40 +104,32 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* VISTA PARA SUPERVISORES: Guardias en Curso (Solo si NO es admin para no saturar) */}
-        {isSupervisor && !isAdmin && (
+        {/* VISTA PARA BOMBEROS Y SUPERVISORES: Horas de Arresto (Excepto ADMIN) */}
+        {!isAdmin && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between min-h-[160px]">
             <div>
               <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                <Clock className="text-green-600" size={20} />
-                Guardias en Curso
+                <ShieldAlert className="text-amber-500" size={20} />
+                Horas de Arresto
               </h3>
-              {isLoading ? <SkeletonLoader /> : (
+              {isProfileLoading && !userProfile ? <SkeletonLoader /> : (
                 <>
-                  {guardiasEnCurso.length > 0 ? (
-                    <div>
-                      <p className="text-xl font-bold text-green-600">
-                        {guardiasEnCurso.length} {guardiasEnCurso.length === 1 ? 'guardia' : 'guardias'} en curso
-                      </p>
-                      <p className="text-sm text-slate-500 mt-1 truncate" title={guardiasEnCurso.map((g:any) => g.bomberoNombre).join(', ')}>
-                        {guardiasEnCurso.map((g:any) => g.bomberoNombre).join(', ')}
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="text-xl font-bold text-slate-400">No hay guardias en curso</p>
-                  )}
+                  <p className="text-2xl font-bold text-slate-900">
+                    {horasCompletas > 0 ? `${horasCompletas}h ` : ''}{minutosRestantes}m
+                  </p>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Equivalente a {balanceArresto} minutos totales.
+                  </p>
                 </>
               )}
             </div>
-            {!isLoading && (
-              <Button variant="link" className="p-0 h-auto mt-4 text-green-600 font-bold flex items-center gap-1 w-fit hover:no-underline" onClick={() => navigate('/guardias')}>
-                Supervisar guardias <ArrowRight size={16} />
-              </Button>
-            )}
+            <Button variant="link" className="p-0 h-auto mt-4 text-amber-600 font-bold flex items-center gap-1 w-fit hover:no-underline" onClick={() => navigate('/arrestos')}>
+              Ver mi historial <ArrowRight size={16} />
+            </Button>
           </div>
         )}
 
-        {/* VISTA PARA SUPERVISORES: Guardias Pendientes (Solo si NO es admin) */}
+        {/* VISTA PARA SUPERVISORES: Guardias Pendientes */}
         {isSupervisor && !isAdmin && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between min-h-[160px]">
             <div>
@@ -147,7 +143,7 @@ const Dashboard = () => {
                     <div>
                       <p className="text-xl font-bold text-slate-900">{guardiasPendientes.length} pendientes</p>
                       <p className="text-sm text-slate-500 mt-1">
-                        Próxima: {proximaGlobal.bomberoNombre} el {new Date(proximaGlobal.fechaInicio).toLocaleDateString()}
+                        Próxima: {proximaGlobal.bomberoNombre} el {format(proximaGlobal.fecha?.toDate ? proximaGlobal.fecha.toDate() : new Date(proximaGlobal.fecha), 'dd/MM/yyyy')}
                       </p>
                     </div>
                   ) : (
@@ -233,6 +229,20 @@ function App() {
                 </MainLayout>
               ) : (
                 <Navigate to="/" />
+              )
+            } 
+          />
+
+          {/* Horas / Arrestos: Todos los usuarios autenticados */}
+          <Route 
+            path="/arrestos" 
+            element={
+              user ? (
+                <MainLayout>
+                  <ArrestosPage />
+                </MainLayout>
+              ) : (
+                <Navigate to="/login" />
               )
             } 
           />

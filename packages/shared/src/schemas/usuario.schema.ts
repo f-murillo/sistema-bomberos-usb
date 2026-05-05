@@ -18,7 +18,9 @@ export const UsuarioSchema = z.object({
     fcmToken: z.string().optional(), // Para poder enviar las notificaciones
     creadoPor: z.string().optional(), // Para llevar control
     fechaRegistro: z.any().optional(), // Flexible para evitar errores de validación Date/String
-    fechaActualizacion: z.any().optional() // Flexible para auditoría
+    fechaActualizacion: z.any().optional(), // Flexible para auditoría
+    minutosArresto: z.number().default(0), // Contador de minutos de arresto/trabajo pendientes
+    condicion: z.enum(['REGULAR', 'NO_REGULAR']).default('REGULAR') // Condición del bombero
 });
 
 // Esquema para el cambio de contraseña

@@ -1,6 +1,11 @@
-export * from './schemas/usuario.schema.js';
-export * from './types/usuario.types.js';
-export * from './schemas/guardia.schema.js';
-export * from './types/guardia.types.js';
-export * from './schemas/notificacion.schema.js';
-export * from './types/notificacion.types.js';
+export { RolSchema, UsuarioSchema, PasswordChangeSchema } from './schemas/usuario.schema';
+export type { Rol, Usuario, CreateUsuarioInput } from './types/usuario.types';
+
+export { EstadoGuardiaSchema, GuardiaSchema } from './schemas/guardia.schema';
+export type { EstadoGuardia, Guardia } from './types/guardia.types';
+
+export { TipoNotificacionSchema, NotificacionSchema } from './schemas/notificacion.schema';
+export type { Notificacion, TipoNotificacion } from './types/notificacion.types';
+
+export { TipoArrestoSchema, EstadoArrestoSchema, ArrestoSchema, SedeSchema, TurnoSchema } from './schemas/arresto.schema';
+export type { Arresto, TipoArresto, EstadoArresto } from './types/arresto.types';

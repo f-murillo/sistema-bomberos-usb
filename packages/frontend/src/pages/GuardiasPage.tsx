@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { Guardia, Usuario } from '@bomberos-usb/shared';
+import type { Guardia } from '@bomberos-usb/shared';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import GuardiaForm from '@/components/GuardiaForm';
+import { generateGuardsReport } from '@/lib/reports';
 import { 
-  Calendar, 
   Plus, 
   Pencil, 
   Trash2, 
@@ -16,115 +19,71 @@ import {
   Clock,
   User,
   CheckCircle,
-  FileText,
-  Download
+  XCircle,
+  MapPin,
+  Calendar,
+  FileText
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { generateGuardsReport } from '@/lib/reports';
+import { cn } from '@/lib/utils';
 
 const GuardiasPage = () => {
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [guardiaAEditar, setGuardiaAEditar] = useState<Guardia | undefined>(undefined);
-  const [confirmGuardiaId, setConfirmGuardiaId] = useState<string | null>(null);
-  const [deleteGuardiaId, setDeleteGuardiaId] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const { isSupervisor, isAdmin, userData } = useAuth();
   const queryClient = useQueryClient();
-  const [currentTime, setCurrentTime] = useState(new Date());
+  const canManage = isSupervisor || isAdmin;
+  const [activeTab] = useState(canManage ? 'gestion' : 'mis-guardias');
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [guardiaAEditar, setGuardiaAEditar] = useState<Guardia | undefined>(undefined);
+  const [obsDialogOpen, setObsDialogOpen] = useState<{ id: string, type: 'COMPLETAR' | 'INASISTENCIA', maxMinutos?: number } | null>(null);
+  const [observaciones, setObservaciones] = useState('');
+  const [minutosEfectivos, setMinutosEfectivos] = useState<number>(0);
+  const [deleteGuardiaId, setDeleteGuardiaId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isIndividualReportOpen, setIsIndividualReportOpen] = useState(false);
+  const [selectedBomberoReport, setSelectedBomberoReport] = useState<string>('');
 
-  // Actualizar la hora cada minuto para que los avisos de "tiempo cumplido" sean exactos
-  React.useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
-    return () => clearInterval(timer);
-  }, []);
-
-  // Paginación
-  const [cursors, setCursors] = useState<(string | null)[]>([null]);
-  const [currentPage, setCurrentPage] = useState(0);
-
-  // 1. Obtener todas las guardias con caché y paginación
+  // Obtener lista de usuarios para el reporte individual
+  const { data: usuarios } = useQuery({
+    queryKey: ['usuarios-reporte'],
+    queryFn: () => api.get<any[]>('/usuarios'),
+    enabled: canManage
+  });
+  
+  // 1. Obtener guardias
   const { data: guardias, isLoading, isError, refetch } = useQuery({
-    queryKey: ['guardias', cursors[currentPage]],
-    queryFn: () => api.get<Guardia[]>(`/guardias?${cursors[currentPage] ? `ultimoId=${cursors[currentPage]}` : ''}`),
+    queryKey: ['guardias', activeTab, userData?.uid],
+    queryFn: () => api.get<Guardia[]>(`/guardias?rel=${activeTab}`),
     staleTime: 5 * 60 * 1000,
   });
 
-  const handleNextPage = () => {
-    if (guardias && guardias.length === 20) {
-      const lastId = guardias[guardias.length - 1].id;
-      if (!cursors.includes(lastId)) {
-        setCursors([...cursors, lastId]);
-      }
-      setCurrentPage(currentPage + 1);
-    }
-  };
-
-  const handlePrevPage = () => {
-    if (currentPage > 0) {
-      setCurrentPage(currentPage - 1);
-    }
-  };
-
-  const resetPagination = () => {
-    setCursors([null]);
-    setCurrentPage(0);
-  };
-
-  // 2. Mutación para eliminar
+  // 2. Mutaciones
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/guardias/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['guardias'] });
-      resetPagination();
+      setDeleteGuardiaId(null);
     },
-    onError: (error: any) => {
-      setErrorMessage(error.message || 'Error al eliminar la guardia');
-    }
+    onError: (error: any) => setErrorMessage(error.message || 'Error al eliminar')
   });
 
-  const iniciarMutation = useMutation({
-    mutationFn: (id: string) => api.patch(`/guardias/${id}/iniciar`, {}),
+  const updateEstadoMutation = useMutation({
+    mutationFn: ({ id, type, obs, mins }: { id: string, type: 'COMPLETAR' | 'INASISTENCIA', obs: string, mins?: number }) => {
+        const endpoint = type === 'COMPLETAR' ? 'completar' : 'inasistencia';
+        return api.patch(`/guardias/${id}/${endpoint}`, { 
+            observaciones: obs,
+            minutosEfectivos: mins
+        });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['guardias'] });
-      resetPagination();
+      setObsDialogOpen(null);
+      setObservaciones('');
+      setMinutosEfectivos(0);
     },
-    onError: (error: any) => {
-      setErrorMessage(error.response?.data?.message || error.message || 'Error al iniciar la guardia');
-    }
+    onError: (error: any) => setErrorMessage(error.message || 'Error al actualizar estado')
   });
-
-  // 4. Mutación para completar (por el bombero)
-  const completarMutation = useMutation({
-    mutationFn: (id: string) => api.patch(`/guardias/${id}/completar`, {}),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['guardias'] });
-      resetPagination();
-    },
-    onError: (error: any) => {
-      setErrorMessage(error.response?.data?.message || error.message || 'Error al completar la guardia');
-    }
-  });
-
-  const handleIniciar = (id: string) => {
-    iniciarMutation.mutate(id);
-  };
-
-  const handleCompletar = (id: string) => {
-    if (canManage) {
-        setConfirmGuardiaId(id);
-    } else {
-        completarMutation.mutate(id);
-    }
-  };
-
-  const confirmCompletar = () => {
-    if (confirmGuardiaId) {
-        completarMutation.mutate(confirmGuardiaId);
-        setConfirmGuardiaId(null);
-    }
-  };
 
   const handleEdit = (guardia: Guardia) => {
     setGuardiaAEditar(guardia);
@@ -136,23 +95,43 @@ const GuardiasPage = () => {
     setIsDialogOpen(true);
   };
 
-  const handleDelete = (guardia: Guardia) => {
-    if (guardia.id) {
-        setDeleteGuardiaId(guardia.id);
+  const handleUpdateEstado = (id: string, type: 'COMPLETAR' | 'INASISTENCIA', maxMins?: number) => {
+    setObsDialogOpen({ id, type, maxMinutos: maxMins });
+    if (type === 'COMPLETAR' && maxMins) {
+        setMinutosEfectivos(maxMins);
     }
   };
 
-  const confirmDelete = () => {
-    if (deleteGuardiaId) {
-        deleteMutation.mutate(deleteGuardiaId);
-        setDeleteGuardiaId(null);
+  const handleDownloadGeneralReport = async () => {
+    try {
+        const res = await api.get<Guardia[]>(`/guardias?rel=gestion&limite=1000`);
+        generateGuardsReport(res, { period: 'mensual' });
+    } catch (error) {
+        alert('Error al generar el reporte general');
+    }
+  };
+
+  const handleDownloadIndividualReport = async () => {
+    if (!selectedBomberoReport) return;
+    try {
+        const bombero = usuarios?.find(u => u.uid === selectedBomberoReport);
+        const nombre = bombero ? bombero.nombre : 'Bombero';
+        const res = await api.get<Guardia[]>(`/guardias?rel=gestion&bomberoId=${selectedBomberoReport}&limite=1000`);
+        
+        generateGuardsReport(res, { 
+            period: 'mensual', 
+            bomberoId: selectedBomberoReport,
+            bomberoNombre: nombre
+        });
+        setIsIndividualReportOpen(false);
+    } catch (error) {
+        alert('Error al generar el reporte individual');
     }
   };
 
   const getStatusBadge = (estado: string) => {
     switch (estado) {
-      case 'PENDIENTE': return <Badge variant="outline">Pendiente</Badge>;
-      case 'EN_CURSO': return <Badge variant="default" className="bg-blue-500 text-white border-none animate-pulse">En curso</Badge>;
+      case 'PENDIENTE': return <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">Pendiente</Badge>;
       case 'COMPLETADA': return <Badge variant="success">Completada</Badge>;
       case 'INASISTENCIA': return <Badge variant="destructive">Inasistencia</Badge>;
       case 'CANCELADA': return <Badge variant="secondary">Cancelada</Badge>;
@@ -160,151 +139,109 @@ const GuardiasPage = () => {
     }
   };
 
-  const canManage = isSupervisor;
-  const isManagementView = isAdmin || isSupervisor; 
-  
-  const title = isManagementView ? "Gestión de Guardias" : "Mis Guardias";
-  const subtitle = isManagementView 
-    ? "Visualiza y coordina los turnos de guardia del equipo." 
-    : "Consulta tus próximos turnos y horario de servicio.";
-
-  const totalCols = isManagementView ? 6 : 5;
-
-  const proximasGuardias = guardias?.filter(g => g.estado === 'PENDIENTE' || g.estado === 'EN_CURSO') || [];
-  const historialGuardias = guardias?.filter(g => g.estado !== 'PENDIENTE' && g.estado !== 'EN_CURSO')
-    .sort((a, b) => new Date(b.fechaInicio).getTime() - new Date(a.fechaInicio).getTime()) || [];
-
-  const renderTable = (data: Guardia[], emptyMessage: string, showActions: boolean = true) => (
+  const renderTable = (data: Guardia[], emptyMessage: string) => (
     <div className="overflow-x-auto">
-      <table className="w-full text-left border-collapse min-w-[700px] lg:min-w-0">
+      <table className="w-full text-left border-collapse min-w-[800px]">
         <thead>
           <tr className="bg-slate-50/50 border-b border-slate-200">
-            {isManagementView && <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Bombero</th>}
+            {activeTab === 'gestion' && <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Bombero</th>}
             <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Fecha</th>
-            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Horario</th>
+            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Detalles</th>
             <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
-            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Observaciones</th>
-            {showActions && <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Acciones</th>}
+            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Notas</th>
+            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider text-right">Acciones</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {data.length === 0 ? (
             <tr>
-              <td colSpan={showActions ? totalCols : totalCols - 1} className="px-6 py-12 text-center text-slate-500 font-medium">
+              <td colSpan={activeTab === 'gestion' ? 6 : 5} className="px-6 py-12 text-center text-slate-500 font-medium">
                 {emptyMessage}
               </td>
             </tr>
           ) : (
-            data.map((guardia) => {
-              const fechaInicio = new Date(guardia.fechaInicio);
-              const fechaFin = new Date(guardia.fechaFin);
-              
-              // Deshabilitar botón de inicio si falta más de 10 min
-              const esMuyTemprano = currentTime.getTime() < (fechaInicio.getTime() - 10 * 60 * 1000);
-              const esDuenio = guardia.bomberoId === userData?.uid;
-              const yaTermino = currentTime.getTime() > fechaFin.getTime();
-
-              return (
+            data.map((guardia) => (
               <tr key={guardia.id} className="hover:bg-slate-50/50 transition-colors">
-                {isManagementView && (
+                {activeTab === 'gestion' && (
                   <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                           <div className="p-2 bg-primary/10 rounded-full text-primary">
                               <User size={16} />
                           </div>
-                          <span className="font-medium text-slate-900">{guardia.bomberoNombre || 'Cargando...'}</span>
+                          <span className="font-medium text-slate-900">{guardia.bomberoNombre}</span>
                       </div>
                   </td>
                 )}
-                <td className="px-6 py-4 text-slate-600">
-                    {guardia.fechaInicio ? format(new Date(guardia.fechaInicio), "eeee d 'de' MMMM", { locale: es }) : '-'}
-                </td>
-                <td className="px-6 py-4 text-slate-600">
-                    <div className="flex items-center gap-2">
-                        <Clock size={14} className="text-slate-400" />
-                        {guardia.fechaInicio && guardia.fechaFin ? (
-                            <span>
-                                {format(new Date(guardia.fechaInicio), "HH:mm")} - {format(new Date(guardia.fechaFin), "HH:mm")}
-                            </span>
-                        ) : '-'}
+                <td className="px-6 py-4">
+                    <div className="flex flex-col">
+                        <span className="font-medium text-slate-900">
+                            {guardia.fecha ? format(new Date(guardia.fecha), "eeee d 'de' MMMM", { locale: es }) : '-'}
+                        </span>
+                        <span className="text-xs text-slate-500 capitalize">
+                            {guardia.fecha ? format(new Date(guardia.fecha), "yyyy", { locale: es }) : ''}
+                        </span>
                     </div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="flex flex-col items-start gap-1">
-                    {getStatusBadge(guardia.estado)}
-                    {guardia.estado === 'EN_CURSO' && yaTermino && (
-                      <span className="text-[10px] font-bold text-destructive animate-pulse flex items-center gap-1">
-                         ⚠️ Tiempo cumplido
-                      </span>
-                    )}
-                  </div>
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-xs text-slate-600">
+                            <Clock size={12} className="text-slate-400" />
+                            <span className="font-semibold">{guardia.turno}</span>
+                            <span className="text-slate-400">|</span>
+                            <span>{guardia.minutosEfectivos && guardia.minutosEfectivos !== guardia.minutos 
+                                ? `${guardia.minutosEfectivos} / ${guardia.minutos}` 
+                                : guardia.minutos} min</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                            <MapPin size={12} className="text-slate-400" />
+                            <span>{guardia.sede}</span>
+                            {guardia.numeroParte && (
+                                <>
+                                    <span className="text-slate-300">•</span>
+                                    <span>Parte: {guardia.numeroParte}</span>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </td>
+                <td className="px-6 py-4">
+                   {getStatusBadge(guardia.estado)}
                 </td>
                 <td className="px-6 py-4 text-slate-500 text-sm max-w-[200px] truncate" title={guardia.observaciones}>
-                    {guardia.observaciones || <span className="text-slate-300 italic">Sin observaciones</span>}
+                    {guardia.observaciones || <span className="text-slate-300 italic">Sin notas</span>}
                 </td>
-                {showActions && (
-                  <td className="px-6 py-4 text-right">
-                    <div className="flex justify-end items-center gap-2">
-                      {/* ACCIÓN DE INICIAR (Solo si está Pendiente) */}
-                      {guardia.estado === 'PENDIENTE' && (esDuenio || canManage) && (
-                        <Button 
-                            variant="secondary" 
-                            size="sm" 
-                            className="h-8 text-xs font-semibold bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-100"
-                            onClick={() => handleIniciar(guardia.id!)}
-                            disabled={iniciarMutation.isPending || esMuyTemprano}
-                            title={esMuyTemprano ? "Aún no es la hora de inicio" : "Marcar inicio de guardia"}
-                        >
-                            {iniciarMutation.isPending && iniciarMutation.variables === guardia.id ? (
-                                <Loader2 size={14} className="animate-spin mr-1" />
-                            ) : null}
-                            Iniciar Guardia
-                        </Button>
-                      )}
-
-                      {/* ACCIÓN DE COMPLETAR (Si está En Curso o Pendiente para Supervisor) */}
-                      {(guardia.estado === 'EN_CURSO' || (guardia.estado === 'PENDIENTE' && canManage)) && (esDuenio || canManage) && (
-                        <Button 
-                            variant="secondary" 
-                            size="sm" 
-                            className="h-8 text-xs font-semibold bg-green-50 text-green-600 hover:bg-green-100 border-green-100"
-                            onClick={() => handleCompletar(guardia.id!)}
-                            disabled={completarMutation.isPending}
-                        >
-                            {completarMutation.isPending && completarMutation.variables === guardia.id ? (
-                                <Loader2 size={14} className="animate-spin mr-1" />
-                            ) : null}
-                            Marcar como completa
-                        </Button>
-                      )}
-                      
-                      {canManage && (
-                        <div className="flex gap-1 ml-2 border-l pl-2 border-slate-200">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-slate-400 hover:text-primary"
-                            onClick={() => handleEdit(guardia)}
-                          >
-                            <Pencil size={14} />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-slate-400 hover:text-destructive"
-                            onClick={() => handleDelete(guardia)}
-                            disabled={deleteMutation.isPending}
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
-                      )}
+                <td className="px-6 py-4 text-right">
+                    <div className="flex justify-end gap-2">
+                        {canManage && guardia.estado === 'PENDIENTE' && (
+                            <>
+                                <Button 
+                                    variant="outline" size="sm" className="h-8 text-green-600 hover:text-green-700 hover:bg-green-50 border-green-100"
+                                    onClick={() => handleUpdateEstado(guardia.id!, 'COMPLETAR', guardia.minutos)}
+                                >
+                                    <CheckCircle size={14} className="mr-1" /> Completar
+                                </Button>
+                                <Button 
+                                    variant="outline" size="sm" className="h-8 text-destructive hover:bg-destructive/5 border-destructive/10"
+                                    onClick={() => handleUpdateEstado(guardia.id!, 'INASISTENCIA', guardia.minutos)}
+                                >
+                                    <XCircle size={14} className="mr-1" /> Inasistencia
+                                </Button>
+                            </>
+                        )}
+                        {canManage && (
+                            <div className="flex gap-1 border-l pl-2 ml-1 border-slate-200">
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(guardia)}>
+                                    <Pencil size={14} className="text-slate-400" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDeleteGuardiaId(guardia.id!)}>
+                                    <Trash2 size={14} className="text-slate-400" />
+                                </Button>
+                            </div>
+                        )}
                     </div>
-                  </td>
-                )}
+                </td>
               </tr>
-              );
-            })
+            ))
           )}
         </tbody>
       </table>
@@ -312,16 +249,22 @@ const GuardiasPage = () => {
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">{title}</h1>
-          <p className="text-sm sm:text-base text-slate-500">{subtitle}</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            <Calendar className="text-primary" />
+            {canManage ? "Gestión de Guardias" : "Mis Guardias"}
+          </h1>
+          <p className="text-slate-500">
+            {canManage 
+              ? "Control y supervisión de los turnos de guardia del equipo." 
+              : "Consulta tus próximos turnos y horario de servicio."}
+          </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="flex-1 sm:flex-none gap-2 h-10">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button variant="outline" size="sm" onClick={() => refetch()} className="h-10">
             <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
-            Actualizar
           </Button>
 
           {canManage && (
@@ -329,167 +272,179 @@ const GuardiasPage = () => {
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={() => generateGuardsReport(guardias || [], 'semanal')} 
-                className="flex-1 sm:flex-none gap-2 h-10 border-blue-200 hover:bg-blue-50 text-blue-700"
+                className="gap-2 h-10 border-slate-200"
+                onClick={handleDownloadGeneralReport}
                 disabled={isLoading}
               >
                 <FileText size={16} />
-                Reporte Semanal
+                Reporte General
               </Button>
               <Button 
                 variant="outline" 
                 size="sm" 
-                onClick={() => generateGuardsReport(guardias || [], 'mensual')} 
-                className="flex-1 sm:flex-none gap-2 h-10 border-indigo-200 hover:bg-indigo-50 text-indigo-700"
+                className="gap-2 h-10 border-slate-200"
+                onClick={() => setIsIndividualReportOpen(true)}
                 disabled={isLoading}
               >
-                <FileText size={16} />
-                Reporte Mensual
+                <User size={16} />
+                Reporte por Bombero
               </Button>
-              
-              <Button className="flex-1 sm:flex-none flex items-center justify-center gap-2 shadow-sm h-10" onClick={handleCreate}>
-                <Plus size={18} />
-                Nueva Guardia
+              <Button className="flex-1 sm:flex-none gap-2 shadow-sm h-10" onClick={handleCreate}>
+                  <Plus size={18} />
+                  Programar Guardia
               </Button>
             </>
           )}
         </div>
       </div>
 
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {isLoading ? (
+              <div className="p-12 text-center">
+                  <Loader2 className="animate-spin h-8 w-8 text-primary mx-auto mb-4" />
+                  <p className="text-slate-500 font-medium">Cargando registros...</p>
+              </div>
+          ) : isError ? (
+              <div className="p-12 text-center text-destructive bg-destructive/5">
+                  <XCircle size={32} className="mx-auto mb-4 opacity-20" />
+                  <p className="font-medium">Error al conectar con el servidor.</p>
+                  <Button variant="link" onClick={() => refetch()}>Reintentar</Button>
+              </div>
+          ) : (
+              renderTable(guardias || [], canManage ? "No hay guardias registradas en el sistema." : "No tienes guardias asignadas.")
+          )}
+      </div>
+
+      {/* Dialogo para Crear/Editar */}
       <Dialog 
         open={isDialogOpen} 
-        onOpenChange={(open) => {
-          setIsDialogOpen(open);
-          if (!open) setGuardiaAEditar(undefined);
-        }}
-        title={guardiaAEditar ? "Editar Guardia" : "Programar Nueva Guardia"}
-        description={guardiaAEditar ? "Modifica los detalles del turno." : "Asigna un nuevo turno de guardia a un bombero."}
+        onOpenChange={setIsDialogOpen}
+        title={guardiaAEditar ? "Editar Guardia" : "Programar Guardia"}
+        description="Ingresa los detalles del turno y la sede correspondiente."
       >
         <GuardiaForm 
           guardia={guardiaAEditar}
-          onSuccess={() => {
-            setIsDialogOpen(false);
-            setGuardiaAEditar(undefined);
-          }} 
-          onCancel={() => {
-            setIsDialogOpen(false);
-            setGuardiaAEditar(undefined);
-          }} 
+          onSuccess={() => setIsDialogOpen(false)} 
+          onCancel={() => setIsDialogOpen(false)} 
         />
       </Dialog>
 
-      {/* SECCIÓN 1: PRÓXIMOS TURNOS */}
-      <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 bg-slate-50 border-b border-slate-200">
-            <h3 className="font-semibold text-slate-700 flex items-center gap-2">
-                <Clock size={18} className="text-primary" />
-                Próximos Turnos Programados
-            </h3>
-        </div>
-        
-        {isLoading ? (
-          <div className="p-12 text-center">
-            <Loader2 className="animate-spin h-8 w-8 text-primary mx-auto mb-4" />
-            <p className="text-slate-500">Cargando cronograma...</p>
-          </div>
-        ) : isError ? (
-          <div className="p-12 text-center text-destructive bg-destructive/5">
-            Error al cargar las guardias. Por favor, intenta de nuevo.
-          </div>
-        ) : (
-          renderTable(proximasGuardias, "No tienes guardias pendientes actualmente.")
-        )}
-      </div>
-
-      {/* SECCIÓN 2: HISTORIAL (Solo si hay datos o no está cargando) */}
-      {!isLoading && !isError && historialGuardias.length > 0 && (
-        <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden opacity-90">
-          <div className="p-4 bg-slate-50 border-b border-slate-200">
-              <h3 className="font-semibold text-slate-700 flex items-center gap-2">
-                  <CheckCircle size={18} className="text-slate-500" />
-                  Historial de Actividad
-              </h3>
-          </div>
-          {renderTable(historialGuardias, "No hay historial registrado.", isManagementView)}
-        </div>
-      )}
-
-      {/* Paginación */}
-      {!isLoading && !isError && (guardias?.length === 20 || currentPage > 0) && (
-        <div className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-200 shadow-sm mt-4">
-          <div className="text-sm text-slate-500">
-            Página <span className="font-bold text-slate-900">{currentPage + 1}</span>
-          </div>
-          <div className="flex gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handlePrevPage} 
-              disabled={currentPage === 0 || isLoading}
-              className="h-8"
-            >
-              Anterior
-            </Button>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleNextPage} 
-              disabled={!guardias || guardias.length < 20 || isLoading}
-              className="h-8"
-            >
-              Siguiente
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Modal de Confirmación para Completar */}
+      {/* Dialogo para Observaciones (Completar/Inasistencia) */}
       <Dialog
-        open={!!confirmGuardiaId}
-        onOpenChange={(open) => !open && setConfirmGuardiaId(null)}
-        title="Confirmar Finalización"
-        description="¿Confirmas que has terminado este turno de guardia? Esta acción cambiará el estado a Completada."
+        open={!!obsDialogOpen}
+        onOpenChange={(open) => !open && setObsDialogOpen(null)}
+        title={obsDialogOpen?.type === 'COMPLETAR' ? "Completar Guardia" : "Registrar Inasistencia"}
+        description="Puedes agregar una nota u observación sobre el cumplimiento de este turno."
       >
-        <div className="flex justify-end gap-3 mt-4">
-            <Button variant="outline" onClick={() => setConfirmGuardiaId(null)}>
-                Cancelar
-            </Button>
-            <Button variant="default" className="bg-green-600 hover:bg-green-700" onClick={confirmCompletar}>
-                Sí, completar guardia
-            </Button>
-        </div>
-      </Dialog>
-
-      {/* Modal de Alerta / Error */}
-      <Dialog
-        open={!!errorMessage}
-        onOpenChange={(open) => !open && setErrorMessage(null)}
-        title="Atención"
-      >
-        <div className="space-y-4">
-            <p className="text-slate-600">{errorMessage}</p>
-            <div className="flex justify-end pt-2">
-                <Button onClick={() => setErrorMessage(null)}>
-                    Aceptar
+        <div className="space-y-4 py-2">
+            {obsDialogOpen?.type === 'COMPLETAR' && (
+                <div className="space-y-2">
+                    <Label htmlFor="mins">Minutos cumplidos (Máx: {obsDialogOpen.maxMinutos})</Label>
+                    <Input 
+                        id="mins" 
+                        type="number"
+                        min={1}
+                        max={obsDialogOpen.maxMinutos}
+                        value={minutosEfectivos}
+                        onChange={(e) => setMinutosEfectivos(Number(e.target.value))}
+                    />
+                    {(minutosEfectivos < 1 || (obsDialogOpen.maxMinutos && minutosEfectivos > obsDialogOpen.maxMinutos)) && (
+                        <p className="text-xs text-destructive font-medium">
+                            Coloque los minutos entre 1 y {obsDialogOpen.maxMinutos}
+                        </p>
+                    )}
+                </div>
+            )}
+            <div className="space-y-2">
+                <Label htmlFor="obs">Observaciones (Opcional)</Label>
+                <Input 
+                    id="obs" 
+                    placeholder={obsDialogOpen?.type === 'COMPLETAR' ? "Ej: Llegó 15 min tarde..." : "Ej: Problemas con el transporte..."} 
+                    value={observaciones}
+                    onChange={(e) => setObservaciones(e.target.value)}
+                    autoFocus={obsDialogOpen?.type !== 'COMPLETAR'}
+                />
+            </div>
+            <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button variant="outline" onClick={() => setObsDialogOpen(null)}>Cancelar</Button>
+                <Button 
+                    className={cn(obsDialogOpen?.type === 'COMPLETAR' ? 'bg-green-600 hover:bg-green-700' : 'bg-destructive hover:bg-destructive/90')}
+                    onClick={() => updateEstadoMutation.mutate({ 
+                        id: obsDialogOpen!.id, 
+                        type: obsDialogOpen!.type, 
+                        obs: observaciones,
+                        mins: obsDialogOpen?.type === 'COMPLETAR' ? minutosEfectivos : undefined
+                    })}
+                    disabled={
+                        updateEstadoMutation.isPending || 
+                        (obsDialogOpen?.type === 'COMPLETAR' && (minutosEfectivos < 1 || (obsDialogOpen.maxMinutos && minutosEfectivos > obsDialogOpen.maxMinutos)))
+                    }
+                >
+                    {updateEstadoMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar'}
                 </Button>
             </div>
         </div>
       </Dialog>
 
-      {/* Modal de Confirmación para Eliminar */}
+      {/* Modal de Error */}
+      <Dialog
+        open={!!errorMessage}
+        onOpenChange={(open) => !open && setErrorMessage(null)}
+        title="Error en la operación"
+      >
+        <div className="space-y-4">
+            <p className="text-slate-600">{errorMessage}</p>
+            <div className="flex justify-end">
+                <Button onClick={() => setErrorMessage(null)}>Aceptar</Button>
+            </div>
+        </div>
+      </Dialog>
+
+      {/* Modal Eliminar */}
       <Dialog
         open={!!deleteGuardiaId}
         onOpenChange={(open) => !open && setDeleteGuardiaId(null)}
-        title="Eliminar Guardia"
-        description="¿Estás seguro de que deseas eliminar esta guardia? Esta acción no se puede deshacer."
+        title="Eliminar Registro"
+        description="Esta acción eliminará permanentemente la guardia del sistema."
       >
         <div className="flex justify-end gap-3 mt-4">
-            <Button variant="outline" onClick={() => setDeleteGuardiaId(null)}>
-                Cancelar
+            <Button variant="outline" onClick={() => setDeleteGuardiaId(null)}>Cancelar</Button>
+            <Button variant="destructive" onClick={() => deleteMutation.mutate(deleteGuardiaId!)} disabled={deleteMutation.isPending}>
+                {deleteMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : 'Eliminar'}
             </Button>
-            <Button variant="destructive" onClick={confirmDelete}>
-                Eliminar definitivamente
-            </Button>
+        </div>
+      </Dialog>
+
+      {/* Modal: Selección de Bombero para Reporte Individual */}
+      <Dialog
+        open={isIndividualReportOpen}
+        onOpenChange={setIsIndividualReportOpen}
+        title="Generar Reporte Individual"
+        description="Selecciona el bombero para generar su reporte mensual de guardias."
+      >
+        <div className="space-y-4 pt-4">
+            <div className="space-y-2">
+                <Label htmlFor="bombero-reporte">Bombero</Label>
+                <select 
+                    id="bombero-reporte"
+                    className="w-full px-4 py-2 bg-white border rounded-md focus:ring-2 focus:ring-primary/20 outline-none transition-all appearance-none"
+                    value={selectedBomberoReport} 
+                    onChange={(e) => setSelectedBomberoReport(e.target.value)}
+                >
+                    <option value="">Seleccionar bombero...</option>
+                    {usuarios?.filter(u => u.rol !== 'ADMIN' && u.activo !== false).map(u => (
+                        <option key={u.uid} value={u.uid}>{u.nombre}</option>
+                    ))}
+                </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button variant="outline" onClick={() => setIsIndividualReportOpen(false)}>
+                    Cancelar
+                </Button>
+                <Button onClick={handleDownloadIndividualReport} disabled={!selectedBomberoReport}>
+                    Descargar Reporte
+                </Button>
+            </div>
         </div>
       </Dialog>
     </div>

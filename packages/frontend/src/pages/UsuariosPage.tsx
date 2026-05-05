@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { Usuario } from '@bomberos-usb/shared';
@@ -11,12 +11,12 @@ import {
   Pencil, 
   Trash2, 
   Search,
-  RefreshCw,
-  Loader2
+  RefreshCw
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/context/AuthContext';
 import { Mail, Phone, Shield } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 const UsuariosPage = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -38,7 +38,7 @@ const UsuariosPage = () => {
 
   const handleNextPage = () => {
     if (usuarios && usuarios.length === 20) {
-      const lastId = usuarios[usuarios.length - 1].uid || usuarios[usuarios.length - 1].id;
+      const lastId = usuarios[usuarios.length - 1].uid;
       if (lastId && !cursors.includes(lastId)) {
         setCursors([...cursors, lastId]);
       }
@@ -232,7 +232,19 @@ const UsuariosPage = () => {
                           )}
                         </div>
                       </td>
-                      <td className="px-6 py-4">{getRoleBadge(usuario.rol)}</td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-col gap-1.5">
+                          {getRoleBadge(usuario.rol)}
+                          <span className={cn(
+                            "text-[10px] font-bold uppercase px-2 py-0.5 rounded-full w-fit border",
+                            (!usuario.condicion || usuario.condicion === 'REGULAR') 
+                              ? "bg-indigo-50 text-indigo-600 border-indigo-100" 
+                              : "bg-orange-50 text-orange-600 border-orange-100"
+                          )}>
+                            {(!usuario.condicion || usuario.condicion === 'REGULAR') ? 'Regular' : 'No Regular'}
+                          </span>
+                        </div>
+                      </td>
                       <td className="px-6 py-4">
                         <Badge variant={usuario.activo ? 'success' : 'outline'}>
                           {usuario.activo ? 'Activo' : 'Inactivo'}

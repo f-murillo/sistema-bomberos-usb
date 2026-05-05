@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { signOut } from 'firebase/auth';
 import { auth } from '@/config/firebase';
 import { useAuth } from '@/context/AuthContext';
@@ -14,6 +15,7 @@ import {
   Menu,
   X,
   KeyRound,
+  ShieldAlert,
   History
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -31,10 +33,12 @@ const MainLayout = ({ children }: MainLayoutProps) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const queryClient = useQueryClient();
   
   const handleLogout = async () => {
     try {
       await signOut(auth);
+      queryClient.clear();
       navigate('/login');
     } catch (error) {
       console.error('Error al cerrar sesión:', error);
@@ -44,6 +48,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
   const menuItems = [
     { label: 'Inicio', icon: <LayoutDashboard size={20} />, path: '/', show: true },
     { label: 'Mis Guardias', icon: <Calendar size={20} />, path: '/guardias', show: !isAdmin },
+    { label: 'Horas / Arrestos', icon: <ShieldAlert size={20} />, path: '/arrestos', show: !isAdmin },
     { label: isAdmin ? 'Gestión Usuarios' : 'Directorio', icon: <Users size={20} />, path: '/usuarios', show: isAdmin || isSupervisor },
     { label: 'Auditoría', icon: <History size={20} />, path: '/auditoria', show: isAdmin },
   ];

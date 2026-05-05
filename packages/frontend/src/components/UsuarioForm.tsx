@@ -31,7 +31,8 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
     resolver: zodResolver(UsuarioSchema),
     defaultValues: {
       activo: true,
-      rol: 'BOMBERO'
+      rol: 'BOMBERO',
+      condicion: 'REGULAR'
     }
   });
 
@@ -44,6 +45,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
         nombre: usuario.nombre,
         email: usuario.email,
         rol: usuario.rol,
+        condicion: usuario.condicion || 'REGULAR',
         activo: usuario.activo !== undefined ? Boolean(usuario.activo) : true,
       });
 
@@ -59,6 +61,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
         nombre: '',
         email: '',
         rol: 'BOMBERO',
+        condicion: 'REGULAR',
         activo: true,
       });
       setPrefix('0414');
@@ -75,6 +78,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
           nombre: data.nombre,
           email: data.email,
           rol: data.rol,
+          condicion: data.condicion,
           activo: data.activo,
           telefono: phoneDigits ? `${prefix}${phoneDigits}` : ""
         };
@@ -83,6 +87,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
       // En creación
       return api.post('/usuarios', {
         ...data,
+        condicion: data.condicion,
         telefono: phoneDigits ? `${prefix}${phoneDigits}` : ""
       });
     },
@@ -179,7 +184,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <Select 
             label="Rol / Permisos"
             options={[
@@ -189,6 +194,16 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
             ]}
             {...register('rol')}
             error={errors.rol?.message as string}
+          />
+
+          <Select 
+            label="Condición"
+            options={[
+              { label: 'Regular', value: 'REGULAR' },
+              { label: 'No Regular', value: 'NO_REGULAR' },
+            ]}
+            {...register('condicion')}
+            error={errors.condicion?.message as string}
           />
 
           <Select 

@@ -5,7 +5,7 @@ import {
   actualizarGuardia, 
   eliminarGuardia,
   completarGuardia,
-  iniciarGuardia
+  marcarInasistencia
 } from "./guardias.controller";
 import { tokenVerification, roleCheck } from '../../middleware/auth.middleware';
 
@@ -17,8 +17,8 @@ router.get('/', tokenVerification, obtenerGuardias);
 // Solo supervisores pueden gestionar guardias (crear y editar)
 router.post('/', tokenVerification, roleCheck(['SUPERVISOR']), crearGuardia);
 router.patch('/:id', tokenVerification, roleCheck(['SUPERVISOR']), actualizarGuardia);
-router.patch('/:id/iniciar', tokenVerification, iniciarGuardia);
-router.patch('/:id/completar', tokenVerification, completarGuardia);
+router.patch('/:id/completar', tokenVerification, roleCheck(['SUPERVISOR']), completarGuardia);
+router.patch('/:id/inasistencia', tokenVerification, roleCheck(['SUPERVISOR']), marcarInasistencia);
 router.delete('/:id', tokenVerification, roleCheck(['SUPERVISOR']), eliminarGuardia);
 
 export default router;

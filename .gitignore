@@ -45,3 +45,11 @@ ehthumbs.db
 tests/
 coverage/
 .nyc_output/
+
+# Firebase
+.firebase/
+
+# Mantenimiento y Pruebas
+packages/backend/src/dump-arrestos.ts
+packages/backend/src/simulate-query.ts
+packages/backend/src/scripts/

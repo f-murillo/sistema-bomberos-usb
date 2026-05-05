@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Check, Info, AlertTriangle, CheckCircle, Settings, X as CloseIcon } from 'lucide-react';
+import { Bell, Info, AlertTriangle, CheckCircle, Settings, X as CloseIcon } from 'lucide-react';
 import { 
   collection, 
   query, 
@@ -36,7 +36,7 @@ const NotificationBell: React.FC = () => {
         if (unreadIds.length > 0) {
             setRecienLeidas(unreadIds);
             // Marcar todas como leídas en el servidor
-            api.patch('/notificaciones/leida').catch(err => {
+            api.patch('/notificaciones/leida', {}).catch(err => {
                 console.error("Error al marcar todas como leídas:", err);
             });
         }
@@ -74,7 +74,7 @@ const NotificationBell: React.FC = () => {
 
   const marcarComoLeida = async (id: string) => {
     try {
-      await api.patch(`/notificaciones/${id}/leida`);
+      await api.patch(`/notificaciones/${id}/leida`, {});
     } catch (error) {
       console.error("Error al marcar como leída:", error);
     }

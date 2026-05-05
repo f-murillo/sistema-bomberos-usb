@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -9,7 +9,6 @@ import { Input } from './ui/input';
 import { Select } from './ui/select-simple';
 import { Label } from './ui/label';
 import { Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
 
 interface GuardiaFormProps {
   guardia?: Guardia;
@@ -17,11 +16,28 @@ interface GuardiaFormProps {
   onCancel: () => void;
 }
 
+const TURNOS_OPTIONS = [
+    { label: 'Turno I', value: 'I' },
+    { label: 'Turno II', value: 'II' },
+    { label: 'Turno III', value: 'III' },
+    { label: 'Turno IV', value: 'IV' },
+    { label: 'Turno V', value: 'V' },
+    { label: 'Turno VI', value: 'VI' },
+    { label: 'Turno VII', value: 'VII' },
+    { label: 'Turno VIII', value: 'VIII' },
+    { label: 'Turno IX', value: 'IX' },
+    { label: 'Turno X', value: 'X' },
+    { label: 'Turno XI', value: 'XI' },
+    { label: 'Turno XII', value: 'XII' },
+    { label: 'Turno XIII', value: 'XIII' },
+    { label: 'Especial', value: 'ESPECIAL' },
+    { label: 'Otro', value: 'OTRO' },
+];
+
 const GuardiaForm = ({ guardia, onSuccess, onCancel }: GuardiaFormProps) => {
   const queryClient = useQueryClient();
   const isEditing = !!guardia?.id;
 
-  // 1. Obtener lista de bomberos/usuarios para el select
   const { data: usuarios } = useQuery({
     queryKey: ['usuarios'],
     queryFn: () => api.get<Usuario[]>('/usuarios'),
@@ -38,12 +54,16 @@ const GuardiaForm = ({ guardia, onSuccess, onCancel }: GuardiaFormProps) => {
     resolver: zodResolver(GuardiaSchema),
     defaultValues: {
       estado: 'PENDIENTE',
+      minutos: 720, // 12 horas por defecto
+      sede: 'SARTENEJAS',
+      turno: 'I'
     }
   });
 
   const selectedBomberoId = watch('bomberoId');
+  const selectedTurno = watch('turno');
+  const [otroTurno, setOtroTurno] = useState('');
 
-  // Actualizar bomberoNombre cuando cambia bomberoId (denormalización para el backend/vista)
   useEffect(() => {
     if (selectedBomberoId && usuarios) {
       const bombero = usuarios.find(u => u.uid === selectedBomberoId);
@@ -55,31 +75,27 @@ const GuardiaForm = ({ guardia, onSuccess, onCancel }: GuardiaFormProps) => {
 
   useEffect(() => {
     if (guardia) {
-      // Convertir fechas para el input datetime-local (formato YYYY-MM-DDTHH:mm)
-      const dateToInput = (date: any) => {
-        if (!date) return '';
-        const d = new Date(date);
-        return format(d, "yyyy-MM-dd'T'HH:mm");
-      };
-
+      const isCustomTurno = guardia.turno && !TURNOS_OPTIONS.some(opt => opt.value === guardia.turno);
+      
       reset({
-        bomberoId: guardia.bomberoId,
-        bomberoNombre: guardia.bomberoNombre,
-        fechaInicio: dateToInput(guardia.fechaInicio),
-        fechaFin: dateToInput(guardia.fechaFin),
-        estado: guardia.estado,
+        ...guardia,
+        fecha: guardia.fecha ? new Date(guardia.fecha).toISOString().split('T')[0] : '',
+        turno: isCustomTurno ? 'OTRO' : guardia.turno,
         observaciones: guardia.observaciones || ''
       });
+
+      if (isCustomTurno) {
+        setOtroTurno(guardia.turno);
+      }
     }
   }, [guardia, reset]);
 
   const mutation = useMutation({
     mutationFn: (data: Guardia) => {
-      // Asegurarse de que las fechas sean objetos Date antes de enviar (o strings ISO)
       const payload = {
         ...data,
-        fechaInicio: new Date(data.fechaInicio as any).toISOString(),
-        fechaFin: new Date(data.fechaFin as any).toISOString(),
+        minutos: Number(data.minutos),
+        turno: data.turno === 'OTRO' ? otroTurno : data.turno
       };
 
       if (isEditing && guardia?.id) {
@@ -104,7 +120,7 @@ const GuardiaForm = ({ guardia, onSuccess, onCancel }: GuardiaFormProps) => {
   const bomberoOptions = usuarios
     ?.filter(u => u.rol !== 'ADMIN' && u.activo !== false)
     .map(u => ({
-      label: u.nombre,
+      label: `${u.nombre} (${u.condicion || 'REGULAR'})`,
       value: u.uid || ''
     })) || [];
 
@@ -121,50 +137,96 @@ const GuardiaForm = ({ guardia, onSuccess, onCancel }: GuardiaFormProps) => {
                 {...register('bomberoId')}
                 error={errors.bomberoId?.message as string}
             />
-            {errors.bomberoId && <p className="text-xs text-destructive font-medium">{errors.bomberoId.message as string}</p>}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-                <Label htmlFor="fechaInicio">Fecha y Hora de Inicio</Label>
+                <Label htmlFor="fecha">Fecha de la Guardia</Label>
                 <Input 
-                    id="fechaInicio" 
-                    type="datetime-local" 
-                    {...register('fechaInicio')}
+                    id="fecha" 
+                    type="date" 
+                    {...register('fecha')}
                 />
-                {errors.fechaInicio && <p className="text-xs text-destructive font-medium">{errors.fechaInicio.message as string}</p>}
+                {errors.fecha && <p className="text-xs text-destructive font-medium">{errors.fecha.message as string}</p>}
             </div>
 
             <div className="space-y-2">
-                <Label htmlFor="fechaFin">Fecha y Hora de Fin</Label>
-                <Input 
-                    id="fechaFin" 
-                    type="datetime-local" 
-                    {...register('fechaFin')}
+                <Select 
+                    label="Turno"
+                    options={[
+                        { label: '-- Seleccionar Turno --', value: '' },
+                        ...TURNOS_OPTIONS
+                    ]}
+                    {...register('turno')}
+                    error={errors.turno?.message as string}
                 />
-                {errors.fechaFin && <p className="text-xs text-destructive font-medium">{errors.fechaFin.message as string}</p>}
+                {selectedTurno === 'OTRO' && (
+                    <div className="pt-1 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <Input 
+                            placeholder="Especificar turno..." 
+                            value={otroTurno}
+                            onChange={(e) => setOtroTurno(e.target.value)}
+                            className="h-9 text-sm"
+                        />
+                    </div>
+                )}
             </div>
         </div>
 
-        <div className="space-y-2">
-            <Select 
-                label="Estado de la Guardia"
-                options={[
-                    { label: 'Pendiente', value: 'PENDIENTE' },
-                    { label: 'En curso', value: 'EN_CURSO' },
-                    { label: 'Completada', value: 'COMPLETADA' },
-                    { label: 'Inasistencia', value: 'INASISTENCIA' },
-                    { label: 'Cancelada', value: 'CANCELADA' },
-                ]}
-                {...register('estado')}
-            />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+                <Label htmlFor="minutos">Duración (Minutos)</Label>
+                <Input 
+                    id="minutos" 
+                    type="number" 
+                    placeholder="Ej: 720 (12 horas)"
+                    {...register('minutos', { valueAsNumber: true })}
+                />
+                {errors.minutos && <p className="text-xs text-destructive font-medium">{errors.minutos.message as string}</p>}
+            </div>
+
+            <div className="space-y-2">
+                <Select 
+                    label="Sede"
+                    options={[
+                        { label: 'Sartenejas', value: 'SARTENEJAS' },
+                        { label: 'Litoral', value: 'LITORAL' }
+                    ]}
+                    {...register('sede')}
+                    error={errors.sede?.message as string}
+                />
+            </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+                <Label htmlFor="numeroParte">Número de Parte (Opcional)</Label>
+                <Input 
+                    id="numeroParte" 
+                    placeholder="Ej: 145-10" 
+                    {...register('numeroParte')}
+                />
+            </div>
+
+            <div className="space-y-2">
+                <Select 
+                    label="Estado"
+                    options={[
+                        { label: 'Pendiente', value: 'PENDIENTE' },
+                        { label: 'Completada', value: 'COMPLETADA' },
+                        { label: 'Inasistencia', value: 'INASISTENCIA' },
+                        { label: 'Cancelada', value: 'CANCELADA' },
+                    ]}
+                    {...register('estado')}
+                />
+            </div>
         </div>
 
         <div className="space-y-2">
             <Label htmlFor="observaciones">Observaciones (Opcional)</Label>
             <Input 
                 id="observaciones" 
-                placeholder="Ej: Cambio de turno por emergencia..." 
+                placeholder="Ej: Instrucciones especiales para este turno..." 
                 {...register('observaciones')}
             />
         </div>
@@ -190,3 +252,5 @@ const GuardiaForm = ({ guardia, onSuccess, onCancel }: GuardiaFormProps) => {
 };
 
 export default GuardiaForm;
+
+

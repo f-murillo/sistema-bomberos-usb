@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Dialog } from '@/components/ui/dialog';
 import { 
@@ -123,7 +123,12 @@ const AuditoriaPage = () => {
       'COMPLETAR_GUARDIA': 'Finalizar Turno',
       'CANCELAR_GUARDIA': 'Cancelar Guardia',
       'INASISTENCIA_GUARDIA': 'Marcar Inasistencia',
-      'ELIMINAR_LOGS': 'Limpieza Logs'
+      'ELIMINAR_LOGS': 'Limpieza Logs',
+      'REGISTRAR_INFRACCION': 'Asignar Arresto',
+      'REPORTAR_PAGO_ARRESTO': 'Reportar Pago',
+      'REVISAR_PAGO_ARRESTO': 'Revisar Pago',
+      'EDITAR_ARRESTO': 'Editar Arresto',
+      'ELIMINAR_ARRESTO': 'Eliminar Arresto'
     };
     return labels[action] || action;
   };
@@ -143,6 +148,13 @@ const AuditoriaPage = () => {
     if (accion === 'ELIMINAR_LOGS') return `Se eliminaron registros de auditoría antiguos`;
     if (accion === 'ELIMINAR_GUARDIA') return `Se eliminó permanentemente una guardia`;
     if (accion === 'ELIMINAR_USUARIO') return `Se eliminó un usuario del sistema`;
+    
+    // Arrestos
+    if (accion === 'REGISTRAR_INFRACCION') return `Se registró una nueva infracción de arresto (${detalles?.minutos || 0} min)`;
+    if (accion === 'REPORTAR_PAGO_ARRESTO') return `Un bombero reportó el pago de arresto (${detalles?.minutos || 0} min)`;
+    if (accion === 'REVISAR_PAGO_ARRESTO') return `Se ${detalles?.estado === 'PAGADO' ? 'aprobó' : 'rechazó'} la validación de un pago`;
+    if (accion === 'EDITAR_ARRESTO') return `Se modificaron los detalles de un registro de arresto`;
+    if (accion === 'ELIMINAR_ARRESTO') return `Se eliminó permanentemente un registro de arresto`;
     
     return 'Acción realizada en el sistema';
   };
