@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
-import { Loader2, User, Clock, FileText, Calendar, MapPin, Hash, CheckSquare } from 'lucide-react';
+import { Loader2, User, Clock, Calendar } from 'lucide-react';
 
 interface ArrestoFormProps {
     tipo: 'INFRACCION' | 'PAGO';
@@ -43,7 +43,7 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
         return TURNOS.includes(initialData.turno) ? initialData.turno : 'OTRO';
     };
 
-    const { register, handleSubmit, control, setValue, formState: { errors } } = useForm<Arresto>({
+    const { register, handleSubmit, control, formState: { errors } } = useForm<Arresto>({
         resolver: zodResolver(ArrestoSchema),
         defaultValues: initialData ? {
             ...initialData,

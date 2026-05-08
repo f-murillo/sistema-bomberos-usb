@@ -9,32 +9,29 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
 import { 
   ShieldAlert, 
+  History, 
   Plus, 
-  CheckCircle2, 
-  XCircle, 
-  Clock, 
-  History,
-  Trash2,
-  Edit2,
+  RefreshCw,
   ArrowDownCircle,
   ArrowUpCircle,
-  Eye,
-  RefreshCw,
-  FileText,
-  User as UserIcon,
+  Edit2,
+  Trash2,
   ListTodo,
-  UserCheck,
-  Info
+  User as UserIcon,
+  Info,
+  FileText,
+  Clock,
+  FileSpreadsheet
 } from 'lucide-react';
-import { generateArrestosReport } from '@/lib/reports';
+import { generateArrestosReport, generateArrestosExcel } from '@/lib/reports';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import type { Arresto, Usuario } from '@bomberos-usb/shared';
 import ArrestoForm from '@/components/ArrestoForm';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select-simple';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const ArrestosPage = () => {
   const { userData, isSupervisor, isAdmin } = useAuth();
@@ -59,6 +56,7 @@ const ArrestosPage = () => {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [notasRevision, setNotasRevision] = useState('');
   const [isIndividualReportOpen, setIsIndividualReportOpen] = useState(false);
+  const [isGeneralReportOpen, setIsGeneralReportOpen] = useState(false);
   const [selectedBomberoReport, setSelectedBomberoReport] = useState<string>('');
 
   // Resetear página al cambiar de pestaña
@@ -74,7 +72,7 @@ const ArrestosPage = () => {
   });
 
   // 1. Obtener historial según el tab activo y página
-  const { data, isLoading, refetch, isPlaceholderData } = useQuery({
+  const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: ['arrestos', activeTab, page, userData?.uid],
     queryFn: () => {
         let url = `/arrestos?page=${page}&limit=${limit}`;
@@ -143,6 +141,22 @@ const ArrestosPage = () => {
     }
   };
 
+  const handleDownloadGeneralExcel = async () => {
+    try {
+        const res = await api.get<{items: Arresto[]}>(`/arrestos?relacion=todo&limit=1000`);
+        const patchedItems = res.items.map(item => {
+            if (!item.bomberoNombre || item.bomberoNombre === 'Sin Nombre' || item.bomberoNombre === 'Bombero') {
+                const user = usuarios?.find(u => u.uid === item.bomberoId);
+                if (user) return { ...item, bomberoNombre: user.nombre };
+            }
+            return item;
+        });
+        generateArrestosExcel(patchedItems, { period: 'mensual' });
+    } catch (error) {
+        alert('Error al generar el reporte Excel');
+    }
+  };
+
   const handleDownloadIndividualReport = async () => {
     if (!selectedBomberoReport) return;
     try {
@@ -150,7 +164,6 @@ const ArrestosPage = () => {
         const nombre = bombero ? bombero.nombre : 'Bombero';
         const res = await api.get<{items: Arresto[]}>(`/arrestos?relacion=todo&bomberoId=${selectedBomberoReport}&limit=1000`);
         
-        // Aseguramos que el nombre aparezca en todos los items del reporte individual
         const patchedItems = res.items.map(item => ({
             ...item,
             bomberoNombre: item.bomberoNombre && item.bomberoNombre !== 'Sin Nombre' ? item.bomberoNombre : nombre
@@ -164,6 +177,29 @@ const ArrestosPage = () => {
         setIsIndividualReportOpen(false);
     } catch (error) {
         alert('Error al generar el reporte individual');
+    }
+  };
+
+  const handleDownloadIndividualExcel = async () => {
+    if (!selectedBomberoReport) return;
+    try {
+        const bombero = usuarios?.find(u => u.uid === selectedBomberoReport);
+        const nombre = bombero ? bombero.nombre : 'Bombero';
+        const res = await api.get<{items: Arresto[]}>(`/arrestos?relacion=todo&bomberoId=${selectedBomberoReport}&limit=1000`);
+        
+        const patchedItems = res.items.map(item => ({
+            ...item,
+            bomberoNombre: item.bomberoNombre && item.bomberoNombre !== 'Sin Nombre' ? item.bomberoNombre : nombre
+        }));
+
+        generateArrestosExcel(patchedItems, { 
+            period: 'mensual', 
+            bomberoId: selectedBomberoReport,
+            bomberoNombre: nombre
+        });
+        setIsIndividualReportOpen(false);
+    } catch (error) {
+        alert('Error al generar el reporte Excel');
     }
   };
 
@@ -315,8 +351,8 @@ const ArrestosPage = () => {
             <>
                 <Button 
                     variant="outline" 
-                    onClick={handleDownloadGeneralReport}
-                    title="Reporte mensual de todos los bomberos"
+                    onClick={() => setIsGeneralReportOpen(true)}
+                    title="Reporte mensual consolidado"
                 >
                     <FileText size={16} className="mr-2" />
                     Reporte General
@@ -327,7 +363,7 @@ const ArrestosPage = () => {
                     title="Reporte mensual de un bombero específico"
                 >
                     <UserIcon size={16} className="mr-2" />
-                    Reporte por Bombero
+                    Reportes por Bombero
                 </Button>
             </>
           )}
@@ -369,7 +405,7 @@ const ArrestosPage = () => {
       )}
 
       {/* Tabs de Listado */}
-      <Tabs value={activeTab} defaultValue="recibidos" onValueChange={(v) => setActiveTab(v as any)}>
+      <Tabs defaultValue="recibidos" onValueChange={(v) => setActiveTab(v as any)}>
         <TabsList className="grid w-full grid-cols-2 md:w-auto md:inline-grid md:grid-cols-3 mb-4">
           <TabsTrigger value="recibidos" className="flex items-center gap-2">
             <ArrowDownCircle size={14} />
@@ -635,7 +671,7 @@ const ArrestosPage = () => {
             <Select 
                 label="Bombero"
                 value={selectedBomberoReport} 
-                onChange={(e) => setSelectedBomberoReport(e.target.value)}
+                onChange={(e: any) => setSelectedBomberoReport(e.target.value)}
                 options={[
                     { label: 'Seleccionar bombero...', value: '' },
                     ...(usuarios?.filter(u => u.rol === 'BOMBERO').map(u => ({ 
@@ -644,12 +680,41 @@ const ArrestosPage = () => {
                     })) || [])
                 ]}
             />
-            <div className="flex justify-end gap-3 pt-4">
+            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
                 <Button variant="outline" onClick={() => setIsIndividualReportOpen(false)}>
                     Cancelar
                 </Button>
+                <Button variant="outline" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-100" onClick={handleDownloadIndividualExcel} disabled={!selectedBomberoReport}>
+                    <FileSpreadsheet size={16} className="mr-2" /> Descargar Excel
+                </Button>
                 <Button onClick={handleDownloadIndividualReport} disabled={!selectedBomberoReport}>
-                    Descargar Reporte
+                    <FileText size={16} className="mr-2" /> Descargar PDF
+                </Button>
+            </div>
+        </div>
+      </Dialog>
+
+      {/* Modal: Opciones Reporte General */}
+      <Dialog
+        open={isGeneralReportOpen}
+        onOpenChange={setIsGeneralReportOpen}
+        title="Generar Reporte General"
+        description="Selecciona el formato para el reporte consolidado de todos los bomberos este mes."
+      >
+        <div className="space-y-4 pt-4">
+            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
+                <Button variant="outline" onClick={() => setIsGeneralReportOpen(false)}>
+                    Cancelar
+                </Button>
+                <Button 
+                    variant="outline" 
+                    className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-100" 
+                    onClick={() => { handleDownloadGeneralExcel(); setIsGeneralReportOpen(false); }}
+                >
+                    <FileSpreadsheet size={16} className="mr-2" /> Descargar Excel
+                </Button>
+                <Button onClick={() => { handleDownloadGeneralReport(); setIsGeneralReportOpen(false); }}>
+                    <FileText size={16} className="mr-2" /> Descargar PDF
                 </Button>
             </div>
         </div>

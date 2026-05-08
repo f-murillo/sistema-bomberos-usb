@@ -2,6 +2,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format, subDays, startOfMonth, isAfter } from 'date-fns';
 import { es } from 'date-fns/locale';
+import * as XLSX from 'xlsx';
 
 export const generateGuardsReport = (guardias: any[], options: { period: 'semanal' | 'mensual', bomberoId?: string, bomberoNombre?: string } = { period: 'mensual' }) => {
   const doc = new jsPDF();
@@ -121,9 +122,9 @@ export const generateGuardsReport = (guardias: any[], options: { period: 'semana
         doc.text(`• ${estado}: ${count}`, 20, currentY + offset);
         offset += 5;
     });
-    doc.setFont(undefined, 'bold');
+    doc.setFont('helvetica', 'bold');
     doc.text(`• Total Minutos Efectivos: ${totalEfectivos} / ${totalProgramados} min`, 20, currentY + offset);
-    doc.setFont(undefined, 'normal');
+    doc.setFont('helvetica', 'normal');
     
     if (deficit > 0) {
         offset += 5;
@@ -250,9 +251,9 @@ export const generateArrestosReport = (arrestos: any[], options: { period: 'mens
     doc.text(`Resumen para ${group.nombre}:`, 14, currentY);
     doc.text(`• Total Infracciones: +${infracciones} min`, 20, currentY + 5);
     doc.text(`• Total Pagos Validados: -${pagos} min`, 20, currentY + 10);
-    doc.setFont(undefined, 'bold');
+    doc.setFont('helvetica', 'bold');
     doc.text(`• Balance del mes: ${infracciones - pagos} min`, 20, currentY + 15);
-    doc.setFont(undefined, 'normal');
+    doc.setFont('helvetica', 'normal');
 
     currentY += 20;
   });
@@ -260,4 +261,108 @@ export const generateArrestosReport = (arrestos: any[], options: { period: 'mens
   // Guardar el PDF
   const nameSuffix = options.bomberoNombre ? options.bomberoNombre.replace(/\s+/g, '_') : 'General';
   doc.save(`reporte-arrestos-${nameSuffix}-${format(now, 'yyyy-MM-dd')}.pdf`);
+};
+
+export const generateGuardsExcel = (guardias: any[], options: { period: 'semanal' | 'mensual', bomberoId?: string, bomberoNombre?: string } = { period: 'mensual' }) => {
+  const now = new Date();
+  const threshold = options.period === 'semanal' ? subDays(now, 7) : startOfMonth(now);
+  let filtered = guardias.filter(g => {
+    const fecha = g.fecha?.toDate ? g.fecha.toDate() : new Date(g.fecha);
+    return isAfter(fecha, threshold);
+  });
+
+  if (options.bomberoId) {
+    filtered = filtered.filter(g => g.bomberoId === options.bomberoId);
+  }
+
+  const data = filtered.map(g => ({
+    'Fecha': format(g.fecha?.toDate ? g.fecha.toDate() : new Date(g.fecha), 'dd/MM/yyyy'),
+    'Bombero': g.bomberoNombre || 'Sin Nombre',
+    'Turno': g.turno,
+    'Sede': g.sede || 'N/A',
+    'Estado': g.estado,
+    'Minutos Programados': g.minutos || 0,
+    'Minutos Efectivos': g.estado === 'COMPLETADA' ? (g.minutosEfectivos ?? g.minutos ?? 0) : 0,
+    'Déficit': g.estado === 'COMPLETADA' ? Math.max(0, (g.minutos || 0) - (g.minutosEfectivos ?? g.minutos ?? 0)) : (g.estado === 'INASISTENCIA' ? (g.minutos || 0) : 0)
+  }));
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Detalle de Guardias');
+
+  // Calcular resumen por bombero (siempre se añade como segunda pestaña)
+  const summaryMap = filtered.reduce((acc: any, g: any) => {
+    const id = g.bomberoId || 'unknown';
+    if (!acc[id]) acc[id] = { 'Bombero': g.bomberoNombre || 'Sin Nombre', 'Prog.': 0, 'Efect.': 0, 'Déficit': 0 };
+    
+    const prog = g.minutos || 0;
+    const efect = g.estado === 'COMPLETADA' ? (g.minutosEfectivos ?? g.minutos ?? 0) : 0;
+    const deficit = g.estado === 'COMPLETADA' ? Math.max(0, prog - efect) : (g.estado === 'INASISTENCIA' ? prog : 0);
+    
+    acc[id]['Prog.'] += prog;
+    acc[id]['Efect.'] += efect;
+    acc[id]['Déficit'] += deficit;
+    return acc;
+  }, {});
+
+  const summaryData = Object.values(summaryMap);
+  const summarySheet = XLSX.utils.json_to_sheet(summaryData);
+  XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen de Totales');
+
+  const nameSuffix = options.bomberoNombre ? options.bomberoNombre.replace(/\s+/g, '_') : 'General';
+  XLSX.writeFile(workbook, `reporte-guardias-${nameSuffix}-${format(now, 'yyyy-MM-dd')}.xlsx`);
+};
+
+export const generateArrestosExcel = (arrestos: any[], options: { period: 'mensual', bomberoId?: string, bomberoNombre?: string } = { period: 'mensual' }) => {
+  const now = new Date();
+  const threshold = startOfMonth(now);
+  let filtered = arrestos.filter(a => isAfter(new Date(a.fechaRegistro), threshold));
+
+  if (options.bomberoId) {
+    filtered = filtered.filter(a => a.bomberoId === options.bomberoId);
+  }
+
+  const data = filtered.map(a => {
+    const mins = Number(a.minutos || 0);
+    const balance = a.tipo === 'INFRACCION' ? mins : (mins * (a.pagoDoble ? 2 : 1) * -1);
+    return {
+      'Fecha Registro': format(new Date(a.fechaRegistro), 'dd/MM/yyyy HH:mm'),
+      'Fecha Suceso': format(new Date(a.fecha), 'dd/MM/yyyy'),
+      'Bombero': a.bomberoNombre || 'Sin Nombre',
+      'Tipo': a.tipo === 'INFRACCION' ? 'Infracción' : 'Pago',
+      'Minutos Base': mins,
+      'Pago Doble': a.pagoDoble ? 'Sí' : 'No',
+      'Impacto Balance': balance,
+      'Estado': a.estado,
+      'Motivo / Falta': a.falta || a.motivo || 'N/A'
+    };
+  });
+
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Detalle de Arrestos');
+
+  // Calcular resumen de balances (siempre se añade como segunda pestaña)
+  const summaryMap = filtered.reduce((acc: any, a: any) => {
+    const id = a.bomberoId || 'unknown';
+    if (!acc[id]) acc[id] = { 'Bombero': a.bomberoNombre || 'Sin Nombre', 'Infracciones': 0, 'Pagos': 0, 'Balance Final': 0 };
+    
+    const mins = Number(a.minutos || 0);
+    if (a.tipo === 'INFRACCION') {
+        acc[id]['Infracciones'] += mins;
+        acc[id]['Balance Final'] += mins;
+    } else if (a.tipo === 'PAGO' && a.estado === 'PAGADO') {
+        const pago = mins * (a.pagoDoble ? 2 : 1);
+        acc[id]['Pagos'] += pago;
+        acc[id]['Balance Final'] -= pago;
+    }
+    return acc;
+  }, {});
+
+  const summaryData = Object.values(summaryMap);
+  const summarySheet = XLSX.utils.json_to_sheet(summaryData);
+  XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen de Balances');
+
+  const nameSuffix = options.bomberoNombre ? options.bomberoNombre.replace(/\s+/g, '_') : 'General';
+  XLSX.writeFile(workbook, `reporte-arrestos-${nameSuffix}-${format(now, 'yyyy-MM-dd')}.xlsx`);
 };

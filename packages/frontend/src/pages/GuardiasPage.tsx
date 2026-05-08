@@ -1,15 +1,14 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { Guardia } from '@bomberos-usb/shared';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import GuardiaForm from '@/components/GuardiaForm';
-import { generateGuardsReport } from '@/lib/reports';
+import { generateGuardsReport, generateGuardsExcel } from '@/lib/reports';
 import { 
   Plus, 
   Pencil, 
@@ -22,7 +21,8 @@ import {
   XCircle,
   MapPin,
   Calendar,
-  FileText
+  FileText,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { format } from 'date-fns';
@@ -42,6 +42,7 @@ const GuardiasPage = () => {
   const [deleteGuardiaId, setDeleteGuardiaId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isIndividualReportOpen, setIsIndividualReportOpen] = useState(false);
+  const [isGeneralReportOpen, setIsGeneralReportOpen] = useState(false);
   const [selectedBomberoReport, setSelectedBomberoReport] = useState<string>('');
 
   // Obtener lista de usuarios para el reporte individual
@@ -111,6 +112,15 @@ const GuardiasPage = () => {
     }
   };
 
+  const handleDownloadGeneralExcel = async () => {
+    try {
+        const res = await api.get<Guardia[]>(`/guardias?rel=gestion&limite=1000`);
+        generateGuardsExcel(res, { period: 'mensual' });
+    } catch (error) {
+        alert('Error al generar el reporte general');
+    }
+  };
+
   const handleDownloadIndividualReport = async () => {
     if (!selectedBomberoReport) return;
     try {
@@ -119,6 +129,24 @@ const GuardiasPage = () => {
         const res = await api.get<Guardia[]>(`/guardias?rel=gestion&bomberoId=${selectedBomberoReport}&limite=1000`);
         
         generateGuardsReport(res, { 
+            period: 'mensual', 
+            bomberoId: selectedBomberoReport,
+            bomberoNombre: nombre
+        });
+        setIsIndividualReportOpen(false);
+    } catch (error) {
+        alert('Error al generar el reporte individual');
+    }
+  };
+
+  const handleDownloadIndividualExcel = async () => {
+    if (!selectedBomberoReport) return;
+    try {
+        const bombero = usuarios?.find(u => u.uid === selectedBomberoReport);
+        const nombre = bombero ? bombero.nombre : 'Bombero';
+        const res = await api.get<Guardia[]>(`/guardias?rel=gestion&bomberoId=${selectedBomberoReport}&limite=1000`);
+        
+        generateGuardsExcel(res, { 
             period: 'mensual', 
             bomberoId: selectedBomberoReport,
             bomberoNombre: nombre
@@ -188,8 +216,8 @@ const GuardiasPage = () => {
                             <Clock size={12} className="text-slate-400" />
                             <span className="font-semibold">{guardia.turno}</span>
                             <span className="text-slate-400">|</span>
-                            <span>{guardia.minutosEfectivos && guardia.minutosEfectivos !== guardia.minutos 
-                                ? `${guardia.minutosEfectivos} / ${guardia.minutos}` 
+                            <span>{(guardia as any).minutosEfectivos && (guardia as any).minutosEfectivos !== guardia.minutos 
+                                ? `${(guardia as any).minutosEfectivos} / ${guardia.minutos}` 
                                 : guardia.minutos} min</span>
                         </div>
                         <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -269,26 +297,26 @@ const GuardiasPage = () => {
 
           {canManage && (
             <>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="gap-2 h-10 border-slate-200"
-                onClick={handleDownloadGeneralReport}
-                disabled={isLoading}
-              >
-                <FileText size={16} />
-                Reporte General
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="gap-2 h-10 border-slate-200"
-                onClick={() => setIsIndividualReportOpen(true)}
-                disabled={isLoading}
-              >
-                <User size={16} />
-                Reporte por Bombero
-              </Button>
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2 h-10 border-slate-200"
+                    onClick={() => setIsGeneralReportOpen(true)}
+                    disabled={isLoading}
+                >
+                    <FileText size={16} />
+                    Reporte General
+                </Button>
+                <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2 h-10 border-slate-200"
+                    onClick={() => setIsIndividualReportOpen(true)}
+                    disabled={isLoading}
+                >
+                    <User size={16} />
+                    Reportes por Bombero
+                </Button>
               <Button className="flex-1 sm:flex-none gap-2 shadow-sm h-10" onClick={handleCreate}>
                   <Plus size={18} />
                   Programar Guardia
@@ -377,7 +405,7 @@ const GuardiasPage = () => {
                     })}
                     disabled={
                         updateEstadoMutation.isPending || 
-                        (obsDialogOpen?.type === 'COMPLETAR' && (minutosEfectivos < 1 || (obsDialogOpen.maxMinutos && minutosEfectivos > obsDialogOpen.maxMinutos)))
+                        (obsDialogOpen?.type === 'COMPLETAR' && (minutosEfectivos < 1 || (obsDialogOpen.maxMinutos && minutosEfectivos > obsDialogOpen.maxMinutos) ? true : false))
                     }
                 >
                     {updateEstadoMutation.isPending ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar'}
@@ -437,12 +465,41 @@ const GuardiasPage = () => {
                     ))}
                 </select>
             </div>
-            <div className="flex justify-end gap-3 pt-4 border-t">
+            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
                 <Button variant="outline" onClick={() => setIsIndividualReportOpen(false)}>
                     Cancelar
                 </Button>
+                <Button variant="outline" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-100" onClick={handleDownloadIndividualExcel} disabled={!selectedBomberoReport}>
+                    <FileSpreadsheet size={16} className="mr-2" /> Descargar Excel
+                </Button>
                 <Button onClick={handleDownloadIndividualReport} disabled={!selectedBomberoReport}>
-                    Descargar Reporte
+                    <FileText size={16} className="mr-2" /> Descargar PDF
+                </Button>
+            </div>
+        </div>
+      </Dialog>
+
+      {/* Modal: Opciones Reporte General */}
+      <Dialog
+        open={isGeneralReportOpen}
+        onOpenChange={setIsGeneralReportOpen}
+        title="Generar Reporte General"
+        description="Selecciona el formato para el reporte consolidado de todos los bomberos este mes."
+      >
+        <div className="space-y-4 pt-4">
+            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
+                <Button variant="outline" onClick={() => setIsGeneralReportOpen(false)}>
+                    Cancelar
+                </Button>
+                <Button 
+                    variant="outline" 
+                    className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-100" 
+                    onClick={() => { handleDownloadGeneralExcel(); setIsGeneralReportOpen(false); }}
+                >
+                    <FileSpreadsheet size={16} className="mr-2" /> Descargar Excel
+                </Button>
+                <Button onClick={() => { handleDownloadGeneralReport(); setIsGeneralReportOpen(false); }}>
+                    <FileText size={16} className="mr-2" /> Descargar PDF
                 </Button>
             </div>
         </div>

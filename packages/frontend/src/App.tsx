@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuth } from './context/AuthContext'
+import { format } from 'date-fns'
 import LoginPage from './pages/LoginPage'
 import UsuariosPage from './pages/UsuariosPage'
 import GuardiasPage from './pages/GuardiasPage'
@@ -11,7 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from './lib/api'
 import { useNavigate } from 'react-router-dom'
 import { Button } from './components/ui/button'
-import { ArrowRight, Calendar, AlertCircle, Clock, ShieldAlert } from 'lucide-react'
+import { ArrowRight, Calendar, AlertCircle, ShieldAlert } from 'lucide-react'
 
 // Configuración de TanStack Query
 const queryClient = new QueryClient({
