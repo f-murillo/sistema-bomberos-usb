@@ -13,6 +13,7 @@ import { api } from './lib/api'
 import { useNavigate } from 'react-router-dom'
 import { Button } from './components/ui/button'
 import { ArrowRight, Calendar, AlertCircle, ShieldAlert } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 // Configuración de TanStack Query
 const queryClient = new QueryClient({
@@ -105,27 +106,42 @@ const Dashboard = () => {
           </div>
         )}
 
-        {/* VISTA PARA BOMBEROS Y SUPERVISORES: Horas de Arresto (Excepto ADMIN) */}
         {!isAdmin && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between min-h-[160px]">
             <div>
               <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                <ShieldAlert className="text-amber-500" size={20} />
-                Horas de Arresto
+                <ShieldAlert className={isSupervisor ? "text-primary" : "text-amber-500"} size={20} />
+                {isSupervisor ? "Gestión de Arrestos" : "Horas de Arresto"}
               </h3>
-              {isProfileLoading && !userProfile ? <SkeletonLoader /> : (
+              {isSupervisor ? (
                 <>
-                  <p className="text-2xl font-bold text-slate-900">
-                    {horasCompletas > 0 ? `${horasCompletas}h ` : ''}{minutosRestantes}m
-                  </p>
+                  <p className="text-2xl font-bold text-slate-900">Panel de Control</p>
                   <p className="text-sm text-slate-500 mt-1">
-                    Equivalente a {balanceArresto} minutos totales.
+                    Supervisión de infracciones y balances del personal.
                   </p>
                 </>
+              ) : (
+                isProfileLoading && !userProfile ? <SkeletonLoader /> : (
+                  <>
+                    <p className="text-2xl font-bold text-slate-900">
+                      {horasCompletas > 0 ? `${horasCompletas}h ` : ''}{minutosRestantes}m
+                    </p>
+                    <p className="text-sm text-slate-500 mt-1">
+                      Equivalente a {balanceArresto} minutos totales.
+                    </p>
+                  </>
+                )
               )}
             </div>
-            <Button variant="link" className="p-0 h-auto mt-4 text-amber-600 font-bold flex items-center gap-1 w-fit hover:no-underline" onClick={() => navigate('/arrestos')}>
-              Ver mi historial <ArrowRight size={16} />
+            <Button 
+              variant="link" 
+              className={cn(
+                "p-0 h-auto mt-4 font-bold flex items-center gap-1 w-fit hover:no-underline",
+                isSupervisor ? "text-primary" : "text-amber-600"
+              )} 
+              onClick={() => navigate('/arrestos')}
+            >
+              {isSupervisor ? "Ir a Gestión Global" : "Ver mi historial"} <ArrowRight size={16} />
             </Button>
           </div>
         )}
@@ -187,7 +203,7 @@ const SkeletonLoader = () => (
 );
 
 function App() {
-  const { user, loading, isAdmin, isSupervisor } = useAuth()
+  const { user, loading, isAdmin } = useAuth()
 
   // Mientras Firebase verifica si hay una sesión activa, no mostramos nada
   if (loading) return (
@@ -224,12 +240,12 @@ function App() {
           <Route 
             path="/usuarios" 
             element={
-              user && (isAdmin || isSupervisor) ? (
+              user ? (
                 <MainLayout>
                   <UsuariosPage />
                 </MainLayout>
               ) : (
-                <Navigate to="/" />
+                <Navigate to="/login" />
               )
             } 
           />

@@ -1,9 +1,11 @@
 import { Request, Response } from "express";
 import { ZodError } from "zod";
+import { format } from "date-fns";
 import { ArrestoSchema } from "@bomberos-usb/shared"; // This will be available after build
 import { db as firestore } from "../../config/firebase";
 import { registrarAuditoria } from "../../utils/auditoria";
 import { NotificacionService } from "../notificaciones/notificaciones.service";
+import { EmailService } from "../notificaciones/email.service";
 
 export const registrarInfraccion = async (req: Request, res: Response) => {
     try {
@@ -76,6 +78,36 @@ export const registrarInfraccion = async (req: Request, res: Response) => {
             link: "/arrestos"
         });
 
+        // Enviar correos electrónicos (en segundo plano)
+        (async () => {
+            try {
+                const infractorDoc = await firestore.collection("usuarios").doc(validatedData.bomberoId).get();
+                const infractorEmail = infractorDoc.data()?.email;
+                const registradorEmail = (req as any).user.email || reportadorDoc.data()?.email;
+                
+                const supervisorsSnapshot = await firestore.collection("usuarios").where("rol", "==", "SUPERVISOR").get();
+                const supervisorEmails = supervisorsSnapshot.docs.map(doc => doc.data().email).filter(e => !!e);
+
+                const destinatarios = new Set<string>();
+                if (infractorEmail) destinatarios.add(infractorEmail);
+                if (registradorEmail) destinatarios.add(registradorEmail);
+                supervisorEmails.forEach(e => destinatarios.add(e));
+
+                if (destinatarios.size > 0) {
+                    await EmailService.enviarNotificacionArresto({
+                        destinatarioEmail: Array.from(destinatarios),
+                        bomberoNombre: infractorDoc.data()?.nombre || "Bombero",
+                        registradoPorNombre: nombreReportador,
+                        minutos: validatedData.minutos,
+                        motivo: validatedData.motivo || validatedData.falta || 'No especificado',
+                        fecha: format(new Date(validatedData.fecha), 'dd/MM/yyyy')
+                    });
+                }
+            } catch (err) {
+                console.error("Error en el envío de correos de infracción:", err);
+            }
+        })();
+
         res.status(201).json({ message: "Infracción registrada y balance actualizado" });
 
     } catch (error: any) {
@@ -90,71 +122,89 @@ export const registrarInfraccion = async (req: Request, res: Response) => {
 export const reportarPago = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
-        const bomberoId = user.uid;
+        const registradoPor = user.uid;
+        const registradoPorNombre = user.nombre || "Usuario";
         
-        // Auto-aprobar si el usuario es SUPERVISOR o ADMIN
+        // El bombero objetivo puede venir en el body o ser el mismo usuario
         const esSuperior = user.rol === 'SUPERVISOR' || user.rol === 'ADMIN';
-        const AUTO_APROBAR_PAGOS = esSuperior; 
-
+        const bomberoId = (esSuperior && req.body.bomberoId) ? req.body.bomberoId : registradoPor;
+        
         const validatedData = ArrestoSchema.parse({
             ...req.body,
             bomberoId,
             tipo: 'PAGO',
-            estado: AUTO_APROBAR_PAGOS ? 'PAGADO' : 'PENDIENTE_VALIDACION',
+            estado: 'PAGADO', // Auto-aprobar siempre
             fechaRegistro: new Date()
         });
 
-        // Calculamos los minutos efectivos a descontar
         const minutosEfectivos = validatedData.pagoDoble ? validatedData.minutos * 2 : validatedData.minutos;
-
         const arrestoRef = firestore.collection("registro_arrestos").doc();
+
+        let bomberoNombre = "Bombero";
 
         await firestore.runTransaction(async (transaction) => {
             const userRef = firestore.collection("usuarios").doc(bomberoId);
             const userDoc = await transaction.get(userRef);
             
-            const userData = userDoc.data();
-            const bomberoNombre = userData?.nombre || (req as any).user.nombre || "Bombero";
-            const registradoPorNombre = bomberoNombre;
-
-            if (AUTO_APROBAR_PAGOS) {
-                if (userDoc.exists) {
-                    const nuevoBalance = Math.max(0, (userData?.minutosArresto || 0) - minutosEfectivos);
-                    transaction.update(userRef, { minutosArresto: nuevoBalance });
-                }
+            if (userDoc.exists) {
+                const userData = userDoc.data();
+                bomberoNombre = userData?.nombre || "Bombero";
+                const nuevoBalance = Math.max(0, (userData?.minutosArresto || 0) - minutosEfectivos);
+                transaction.update(userRef, { minutosArresto: nuevoBalance });
             }
 
             transaction.set(arrestoRef, {
                 ...validatedData,
                 bomberoNombre,
-                registradoPor: bomberoId,
+                registradoPor,
                 registradoPorNombre,
                 fecha: new Date(validatedData.fecha)
             });
         });
 
-        await registrarAuditoria('REPORTAR_PAGO_ARRESTO', 'registro_arrestos', arrestoRef.id, bomberoId, { minutos: validatedData.minutos });
+        await registrarAuditoria('REPORTAR_PAGO_ARRESTO', 'registro_arrestos', arrestoRef.id, registradoPor, { minutos: validatedData.minutos, bomberoId });
 
-        if (!AUTO_APROBAR_PAGOS) {
-            // Notificar a los supervisores
-            const supervisoresSnapshot = await firestore.collection("usuarios")
-                .where("rol", "==", "SUPERVISOR")
-                .where("activo", "==", true)
-                .get();
-            
-            for (const supDoc of supervisoresSnapshot.docs) {
-                await NotificacionService.enviar({
-                    usuarioId: supDoc.id,
-                    titulo: "⏳ Nuevo pago por revisar",
-                    mensaje: `Un bombero ha reportado el pago de ${validatedData.minutos} minutos de arresto.`,
-                    tipo: "INFO",
-                    link: "/arrestos"
-                });
-            }
+        // Si fue asignado por otra persona, notificar al bombero
+        if (bomberoId !== registradoPor) {
+            await NotificacionService.enviar({
+                usuarioId: bomberoId,
+                titulo: "📋 Pago de arresto registrado",
+                mensaje: `${registradoPorNombre} ha registrado un pago de ${validatedData.minutos} minutos a tu nombre. Motivo: ${validatedData.motivo || 'No especificado'}`,
+                tipo: "INFO",
+                link: "/arrestos"
+            });
         }
 
+        // Enviar correos electrónicos (en segundo plano)
+        (async () => {
+            try {
+                const bomberoDoc = await firestore.collection("usuarios").doc(bomberoId).get();
+                const bomberoEmail = bomberoDoc.data()?.email;
+                
+                const supervisorsSnapshot = await firestore.collection("usuarios").where("rol", "==", "SUPERVISOR").get();
+                const supervisorEmails = supervisorsSnapshot.docs.map(doc => doc.data().email).filter(e => !!e);
+
+                const destinatarios = new Set<string>();
+                if (bomberoEmail) destinatarios.add(bomberoEmail);
+                supervisorEmails.forEach(e => destinatarios.add(e));
+
+                if (destinatarios.size > 0) {
+                    await EmailService.enviarNotificacionPago({
+                        destinatarioEmail: Array.from(destinatarios),
+                        bomberoNombre: bomberoDoc.data()?.nombre || "Bombero",
+                        minutos: validatedData.minutos,
+                        pagoDoble: validatedData.pagoDoble,
+                        motivo: validatedData.motivo || 'No especificado',
+                        fecha: format(new Date(validatedData.fecha), 'dd/MM/yyyy')
+                    });
+                }
+            } catch (err) {
+                console.error("Error en el envío de correos de pago:", err);
+            }
+        })();
+
         res.status(201).json({ 
-            message: AUTO_APROBAR_PAGOS ? "Pago reportado y validado exitosamente." : "Pago reportado exitosamente. Pendiente de validación.", 
+            message: "Pago reportado y procesado exitosamente.", 
             id: arrestoRef.id 
         });
 
@@ -163,7 +213,7 @@ export const reportarPago = async (req: Request, res: Response) => {
             return res.status(400).json({ errors: error.flatten() });
         }
         console.error("Error al reportar pago:", error);
-        res.status(500).json({ message: "Error interno del servidor" });
+        res.status(500).json({ message: error.message || "Error interno del servidor" });
     }
 };
 
@@ -249,7 +299,7 @@ export const obtenerHistorialArrestos = async (req: Request, res: Response) => {
     try {
         const user = (req as any).user;
         const { uid } = user;
-        const { relacion, bomberoId: targetId } = req.query; 
+        const { relacion, bomberoId: targetId, estado: filterEstado, excluirEstado, tipo: filterTipo } = req.query; 
         const page = parseInt(req.query.page as string) || 1;
         const limit = parseInt(req.query.limit as string) || 10;
         const skip = (page - 1) * limit;
@@ -258,12 +308,20 @@ export const obtenerHistorialArrestos = async (req: Request, res: Response) => {
 
         if (relacion === 'asignados') {
             query = query.where("registradoPor", "==", uid);
-        } else if (relacion === 'todo' && (user.rol === 'SUPERVISOR' || user.rol === 'ADMIN')) {
+        } else if (relacion === 'todo') {
             if (targetId) {
                 query = query.where("bomberoId", "==", targetId);
             }
         } else {
             query = query.where("bomberoId", "==", uid);
+        }
+
+        // Aplicamos filtros adicionales si existen
+        if (filterEstado) {
+            query = query.where("estado", "==", filterEstado);
+        }
+        if (filterTipo) {
+            query = query.where("tipo", "==", filterTipo);
         }
 
         const snapshot = await query.get();
@@ -278,6 +336,11 @@ export const obtenerHistorialArrestos = async (req: Request, res: Response) => {
 
         if (relacion === 'asignados') {
             docs = docs.filter((doc: any) => doc.tipo === 'INFRACCION');
+        }
+
+        // Filtro de exclusión (útil para "Historial General" que excluye pendientes de validación)
+        if (excluirEstado) {
+            docs = docs.filter((doc: any) => doc.estado !== excluirEstado);
         }
 
         const filteredTotalItems = docs.length;
@@ -317,12 +380,16 @@ export const editarArresto = async (req: Request, res: Response) => {
             if (!arrestoDoc.exists) throw new Error("El registro no existe");
             const arrestoData = arrestoDoc.data() as any;
 
-            if (arrestoData.registradoPor !== currentUserId) {
-                throw new Error("No tienes permiso para editar este registro.");
+            const createdAt = arrestoData.fechaRegistro?.toDate ? arrestoData.fechaRegistro.toDate() : new Date(arrestoData.fechaRegistro);
+            const hoursSinceCreation = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
+            const isSuperior = (req as any).user.rol === 'ADMIN' || (req as any).user.rol === 'SUPERVISOR';
+            
+            if (hoursSinceCreation > 48 && !isSuperior) {
+                throw new Error("El tiempo máximo para editar este registro (48 horas) ha expirado.");
             }
 
-            if (arrestoData.estado === 'PAGADO') {
-                throw new Error("No se puede editar un registro que ya ha sido pagado.");
+            if (arrestoData.registradoPor !== currentUserId && !isSuperior) {
+                throw new Error("No tienes permiso para editar este registro.");
             }
 
             // No permitir cambiar el bombero asignado
@@ -330,13 +397,19 @@ export const editarArresto = async (req: Request, res: Response) => {
                 throw new Error("No se permite cambiar el bombero asignado.");
             }
 
-            // Ajustar balance si cambiaron los minutos o el tipo (aunque el tipo no debería cambiar)
+            // Ajustar balance si cambiaron los minutos
             if (updateData.minutos !== undefined && updateData.minutos !== arrestoData.minutos) {
                 const userRef = firestore.collection("usuarios").doc(arrestoData.bomberoId);
                 const userDoc = await transaction.get(userRef);
                 if (userDoc.exists) {
                     const diff = updateData.minutos - arrestoData.minutos;
-                    const nuevoBalance = (userDoc.data()?.minutosArresto || 0) + diff;
+                    let diffEfectivo = arrestoData.pagoDoble ? diff * 2 : diff;
+                    
+                    if (arrestoData.tipo === 'PAGO') {
+                        diffEfectivo = -diffEfectivo; // Si aumenta el pago, disminuye la deuda
+                    }
+                    
+                    const nuevoBalance = (userDoc.data()?.minutosArresto || 0) + diffEfectivo;
                     transaction.update(userRef, { minutosArresto: Math.max(0, nuevoBalance) });
                 }
             }
@@ -367,19 +440,31 @@ export const eliminarArresto = async (req: Request, res: Response) => {
             if (!arrestoDoc.exists) throw new Error("El registro no existe");
             const arrestoData = arrestoDoc.data() as any;
 
-            if (arrestoData.registradoPor !== currentUserId) {
+            const createdAt = arrestoData.fechaRegistro?.toDate ? arrestoData.fechaRegistro.toDate() : new Date(arrestoData.fechaRegistro);
+            const hoursSinceCreation = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
+            const isSuperior = (req as any).user.rol === 'ADMIN' || (req as any).user.rol === 'SUPERVISOR';
+            
+            if (hoursSinceCreation > 48 && !isSuperior) {
+                throw new Error("El tiempo máximo para eliminar este registro (48 horas) ha expirado.");
+            }
+
+            if (arrestoData.registradoPor !== currentUserId && !isSuperior) {
                 throw new Error("No tienes permiso para eliminar este registro.");
             }
 
-            if (arrestoData.estado === 'PAGADO') {
-                throw new Error("No se puede eliminar un registro que ya ha sido pagado.");
-            }
-
-            // Restar los minutos del balance del usuario
+            // Ajustar el balance del usuario
             const userRef = firestore.collection("usuarios").doc(arrestoData.bomberoId);
             const userDoc = await transaction.get(userRef);
             if (userDoc.exists) {
-                const nuevoBalance = (userDoc.data()?.minutosArresto || 0) - arrestoData.minutos;
+                const minutosEfectivos = arrestoData.pagoDoble ? arrestoData.minutos * 2 : arrestoData.minutos;
+                let nuevoBalance = userDoc.data()?.minutosArresto || 0;
+                
+                if (arrestoData.tipo === 'PAGO') {
+                    nuevoBalance += minutosEfectivos; // Si se elimina el pago, la deuda vuelve
+                } else {
+                    nuevoBalance -= minutosEfectivos; // Si se elimina la infracción, la deuda baja
+                }
+                
                 transaction.update(userRef, { minutosArresto: Math.max(0, nuevoBalance) });
             }
 

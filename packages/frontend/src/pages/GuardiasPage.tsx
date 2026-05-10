@@ -115,7 +115,8 @@ const GuardiasPage = () => {
   const handleDownloadGeneralExcel = async () => {
     try {
         const res = await api.get<Guardia[]>(`/guardias?rel=gestion&limite=1000`);
-        generateGuardsExcel(res, { period: 'mensual' });
+        await generateGuardsExcel(res, { period: 'mensual' });
+        setIsGeneralReportOpen(false);
     } catch (error) {
         alert('Error al generar el reporte general');
     }
@@ -146,7 +147,7 @@ const GuardiasPage = () => {
         const nombre = bombero ? bombero.nombre : 'Bombero';
         const res = await api.get<Guardia[]>(`/guardias?rel=gestion&bomberoId=${selectedBomberoReport}&limite=1000`);
         
-        generateGuardsExcel(res, { 
+        await generateGuardsExcel(res, { 
             period: 'mensual', 
             bomberoId: selectedBomberoReport,
             bomberoNombre: nombre

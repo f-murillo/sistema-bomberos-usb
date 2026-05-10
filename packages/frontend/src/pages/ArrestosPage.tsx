@@ -9,28 +9,24 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
 import { 
   ShieldAlert, 
-  History, 
   Plus, 
   RefreshCw,
   ArrowDownCircle,
   ArrowUpCircle,
-  Edit2,
-  Trash2,
-  ListTodo,
-  User as UserIcon,
-  Info,
-  FileText,
-  Clock,
+  Edit2, 
+  Trash2, 
+  ListTodo, 
+  Info, 
+  FileText, 
+  Clock, 
   FileSpreadsheet
 } from 'lucide-react';
-import { generateArrestosReport, generateArrestosExcel } from '@/lib/reports';
+import { generateArrestosReport, generateArrestosGeneralExcel } from '@/lib/reports';
 import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
-import type { Arresto, Usuario } from '@bomberos-usb/shared';
+import { type Arresto, type Usuario, REGLAS_CONDICION } from '@bomberos-usb/shared';
 import ArrestoForm from '@/components/ArrestoForm';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
-import { Select } from '@/components/ui/select-simple';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const ArrestosPage = () => {
@@ -45,44 +41,55 @@ const ArrestosPage = () => {
   }, [isAdmin, navigate]);
   
   if (isAdmin) return null;
-  const [activeTab, setActiveTab] = useState<'recibidos' | 'asignados' | 'global'>('recibidos');
+  const [activeTab, setActiveTab] = useState<'recibidos' | 'asignados' | 'global' | 'balance'>(
+    isSupervisor ? 'asignados' : 'recibidos'
+  );
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [page, setPage] = useState(1);
   const limit = 10;
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [formType, setFormType] = useState<'INFRACCION' | 'PAGO'>('PAGO');
   const [selectedArresto, setSelectedArresto] = useState<Arresto | null>(null);
-  const [isReviewOpen, setIsReviewOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [notasRevision, setNotasRevision] = useState('');
-  const [isIndividualReportOpen, setIsIndividualReportOpen] = useState(false);
   const [isGeneralReportOpen, setIsGeneralReportOpen] = useState(false);
-  const [selectedBomberoReport, setSelectedBomberoReport] = useState<string>('');
+  const [recibidosSubTab, setRecibidosSubTab] = useState<'infracciones' | 'pagos'>('infracciones');
 
-  // Resetear página al cambiar de pestaña
+  // Resetear página al cambiar de pestaña o subpestaña
   useEffect(() => {
     setPage(1);
-  }, [activeTab]);
+  }, [activeTab, recibidosSubTab]);
 
   // Obtener lista de usuarios para el reporte individual
   const { data: usuarios } = useQuery({
     queryKey: ['usuarios-reporte'],
     queryFn: () => api.get<any[]>('/usuarios'),
-    enabled: isSupervisor || isAdmin
+    enabled: !!userData?.uid
   });
 
   // 1. Obtener historial según el tab activo y página
   const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: ['arrestos', activeTab, page, userData?.uid],
+    queryKey: ['arrestos', activeTab, activeTab === 'recibidos' ? recibidosSubTab : null, page, userData?.uid],
     queryFn: () => {
-        let url = `/arrestos?page=${page}&limit=${limit}`;
-        if (activeTab === 'recibidos') url += '&relacion=recibidos';
+        let url = `/arrestos?page=${page}&limit=${activeTab === 'balance' ? 2000 : limit}`;
+        if (activeTab === 'recibidos') {
+            url += '&relacion=recibidos';
+            if (recibidosSubTab === 'infracciones') {
+                url += '&tipo=INFRACCION';
+            } else {
+                url += '&tipo=PAGO';
+            }
+        }
         if (activeTab === 'asignados') url += '&relacion=asignados';
-        if (activeTab === 'global') url += '&relacion=todo';
+        if (activeTab === 'global' || activeTab === 'balance') {
+            url += '&relacion=todo';
+        }
         return api.get<{ items: Arresto[], totalItems: number, totalPages: number, currentPage: number }>(url);
     },
     staleTime: 5 * 60 * 1000, // 5 minutos de caché fresca
     placeholderData: (prev) => prev,
+    enabled: !!userData?.uid
   });
 
   const historial = data?.items || [];
@@ -95,18 +102,7 @@ const ArrestosPage = () => {
     enabled: !!userData?.uid
   });
 
-  // 3. Mutación para revisar
-  const reviewMutation = useMutation({
-    mutationFn: ({ id, estado, notas }: { id: string, estado: 'PAGADO' | 'RECHAZADO', notas: string }) => 
-        api.patch(`/arrestos/${id}/revisar`, { estado, notasRevision: notas }),
-    onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['arrestos'] });
-        queryClient.invalidateQueries({ queryKey: ['profile'] });
-        setIsReviewOpen(false);
-        setSelectedArresto(null);
-        setNotasRevision('');
-    }
-  });
+
 
   // 4. Mutación para eliminar
   const deleteMutation = useMutation({
@@ -120,6 +116,57 @@ const ArrestosPage = () => {
   const balance = userProfile?.minutosArresto ?? userData?.minutosArresto ?? 0;
   const horasCompletas = Math.floor(balance / 60);
   const minutosRestantes = balance % 60;
+  const userCondicion = userProfile?.condicion || 'REGULAR';
+  const userReglas = REGLAS_CONDICION[userCondicion as keyof typeof REGLAS_CONDICION] || REGLAS_CONDICION['REGULAR'];
+  const isExcedido = balance >= userReglas.maxMinutosArresto;
+
+  // Lógica para calcular balance histórico por usuario hasta el mes seleccionado
+  const calculateBalances = () => {
+    if (!usuarios || !historial) return [];
+
+    // Fecha límite: último segundo del mes seleccionado
+    const limitDate = new Date(selectedYear, selectedMonth + 1, 0, 23, 59, 59);
+
+    // Filtrar arrestos hasta esa fecha
+    const relevantArrestos = historial.filter(a => {
+        const fecha = new Date(a.fechaRegistro);
+        return fecha <= limitDate;
+    });
+
+    return usuarios
+      .filter(u => u.rol === 'BOMBERO')
+      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+      .map((u, index) => {
+        const userArrestos = relevantArrestos.filter(a => a.bomberoId === u.uid);
+        
+        let calculatedBalance = 0;
+        userArrestos.forEach(a => {
+            const mins = Number(a.minutos || 0);
+            if (a.tipo === 'INFRACCION') {
+                calculatedBalance += mins;
+            } else if (a.tipo === 'PAGO' && a.estado === 'PAGADO') {
+                calculatedBalance -= (mins * (a.pagoDoble ? 2 : 1));
+            }
+        });
+
+        const uCondicion = u.condicion || 'REGULAR';
+        const uReglas = REGLAS_CONDICION[uCondicion as keyof typeof REGLAS_CONDICION] || REGLAS_CONDICION['REGULAR'];
+        const uExcedido = calculatedBalance >= uReglas.maxMinutosArresto;
+
+        return {
+            num: index + 1,
+            uid: u.uid,
+            nombre: u.nombre,
+            rango: u.rango || 'N/A',
+            condicion: uCondicion,
+            balance: Math.max(0, calculatedBalance),
+            limite: uReglas.maxMinutosArresto,
+            excedido: uExcedido
+        };
+      });
+  };
+
+  const balancesData = calculateBalances();
 
   const handleDownloadGeneralReport = async () => {
     try {
@@ -143,65 +190,18 @@ const ArrestosPage = () => {
 
   const handleDownloadGeneralExcel = async () => {
     try {
-        const res = await api.get<{items: Arresto[]}>(`/arrestos?relacion=todo&limit=1000`);
-        const patchedItems = res.items.map(item => {
-            if (!item.bomberoNombre || item.bomberoNombre === 'Sin Nombre' || item.bomberoNombre === 'Bombero') {
-                const user = usuarios?.find(u => u.uid === item.bomberoId);
-                if (user) return { ...item, bomberoNombre: user.nombre };
-            }
-            return item;
-        });
-        generateArrestosExcel(patchedItems, { period: 'mensual' });
+        if (!usuarios) {
+            alert('Cargando datos de usuarios, por favor intenta de nuevo en un momento.');
+            return;
+        }
+        await generateArrestosGeneralExcel(usuarios);
+        setIsGeneralReportOpen(false);
     } catch (error) {
         alert('Error al generar el reporte Excel');
     }
   };
 
-  const handleDownloadIndividualReport = async () => {
-    if (!selectedBomberoReport) return;
-    try {
-        const bombero = usuarios?.find(u => u.uid === selectedBomberoReport);
-        const nombre = bombero ? bombero.nombre : 'Bombero';
-        const res = await api.get<{items: Arresto[]}>(`/arrestos?relacion=todo&bomberoId=${selectedBomberoReport}&limit=1000`);
-        
-        const patchedItems = res.items.map(item => ({
-            ...item,
-            bomberoNombre: item.bomberoNombre && item.bomberoNombre !== 'Sin Nombre' ? item.bomberoNombre : nombre
-        }));
 
-        generateArrestosReport(patchedItems, { 
-            period: 'mensual', 
-            bomberoId: selectedBomberoReport,
-            bomberoNombre: nombre
-        });
-        setIsIndividualReportOpen(false);
-    } catch (error) {
-        alert('Error al generar el reporte individual');
-    }
-  };
-
-  const handleDownloadIndividualExcel = async () => {
-    if (!selectedBomberoReport) return;
-    try {
-        const bombero = usuarios?.find(u => u.uid === selectedBomberoReport);
-        const nombre = bombero ? bombero.nombre : 'Bombero';
-        const res = await api.get<{items: Arresto[]}>(`/arrestos?relacion=todo&bomberoId=${selectedBomberoReport}&limit=1000`);
-        
-        const patchedItems = res.items.map(item => ({
-            ...item,
-            bomberoNombre: item.bomberoNombre && item.bomberoNombre !== 'Sin Nombre' ? item.bomberoNombre : nombre
-        }));
-
-        generateArrestosExcel(patchedItems, { 
-            period: 'mensual', 
-            bomberoId: selectedBomberoReport,
-            bomberoNombre: nombre
-        });
-        setIsIndividualReportOpen(false);
-    } catch (error) {
-        alert('Error al generar el reporte Excel');
-    }
-  };
 
   const getStatusBadge = (estado: string) => {
     switch (estado) {
@@ -223,116 +223,7 @@ const ArrestosPage = () => {
     }
   };
 
-  const renderTable = (items: Arresto[]) => (
-    <div className="overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-            <thead>
-            <tr className="bg-slate-50 border-b">
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Fecha</th>
-                {(activeTab === 'global' || activeTab === 'asignados') && <th className="px-6 py-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Bombero</th>}
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Tipo</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Minutos</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Motivo</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-500 tracking-wider">Estado</th>
-                <th className="px-6 py-4 text-xs font-bold uppercase text-slate-500 tracking-wider text-right">Acciones</th>
-            </tr>
-            </thead>
-            <tbody className="divide-y">
-            {items.map((arresto) => (
-                <tr key={arresto.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                        {arresto.fechaRegistro ? format(new Date(arresto.fechaRegistro), 'dd/MM/yyyy HH:mm', { locale: es }) : '---'}
-                    </td>
-                    {(activeTab === 'global' || activeTab === 'asignados') && (
-                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
-                            {arresto.bomberoNombre || 'Bombero'}
-                        </td>
-                    )}
-                    <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                            {arresto.tipo === 'INFRACCION' ? (
-                            <>
-                                <ArrowUpCircle size={16} className="text-red-500" />
-                                <span className="text-sm font-medium text-red-600">Infracción</span>
-                            </>
-                            ) : (
-                            <>
-                                <ArrowDownCircle size={16} className="text-emerald-500" />
-                                <span className="text-sm font-medium text-emerald-600">Pago</span>
-                            </>
-                            )}
-                        </div>
-                    </td>
-                    <td className={cn("px-6 py-4 whitespace-nowrap text-sm font-medium", 
-                        arresto.tipo === 'INFRACCION' ? 'text-red-600' : 'text-emerald-600'
-                    )}>
-                        {arresto.tipo === 'INFRACCION' ? `+${arresto.minutos || 0}` : `-${(arresto.minutos || 0) * (arresto.pagoDoble ? 2 : 1)}`} min
-                        {arresto.pagoDoble && (
-                            <span className="text-[10px] block opacity-80 font-normal">
-                                (Doble: {arresto.minutos || 0} x 2)
-                            </span>
-                        )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-600 max-w-xs truncate" title={arresto.tipo === 'INFRACCION' ? arresto.motivo || arresto.falta : arresto.observaciones}>
-                        {arresto.tipo === 'INFRACCION' ? (arresto.motivo || arresto.falta) : arresto.observaciones}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                        {getStatusBadge(arresto.estado)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-right space-x-2">
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={() => { setSelectedArresto(arresto); setIsDetailsOpen(true); }}
-                            className="text-slate-500 border-slate-200 hover:bg-slate-50"
-                        >
-                            Ver Detalles
-                        </Button>
 
-
-
-                        {/* Acción de Revisión (Supervisores en Tab Global) */}
-                        {activeTab === 'global' && arresto.estado === 'PENDIENTE_VALIDACION' && (
-                            <Button 
-                                variant="ghost" 
-                                size="sm" 
-                                onClick={() => { setSelectedArresto(arresto); setIsReviewOpen(true); }}
-                                className="text-primary"
-                            >
-                                Validar
-                            </Button>
-                        )}
-
-                        {/* Acciones de Edición/Eliminación (Solo en Asignados y si no está pagado) */}
-                        {activeTab === 'asignados' && arresto.estado === 'PENDIENTE_PAGO' && (
-                            <>
-                                <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    onClick={() => { setSelectedArresto(arresto); setIsEditOpen(true); }}
-                                    className="text-slate-500 hover:text-primary"
-                                >
-                                    <Edit2 size={16} />
-                                </Button>
-                                <Button 
-                                    variant="ghost" 
-                                    size="sm" 
-                                    onClick={() => handleDelete(arresto.id!)}
-                                    className="text-slate-500 hover:text-red-600"
-                                >
-                                    <Trash2 size={16} />
-                                </Button>
-                            </>
-                        )}
-                        
-
-                    </td>
-                </tr>
-            ))}
-            </tbody>
-        </table>
-    </div>
-  );
 
   return (
     <div className="space-y-6">
@@ -347,28 +238,9 @@ const ArrestosPage = () => {
         </div>
         
         <div className="flex items-center gap-2">
-          {(isSupervisor || isAdmin) && (
-            <>
-                <Button 
-                    variant="outline" 
-                    onClick={() => setIsGeneralReportOpen(true)}
-                    title="Reporte mensual consolidado"
-                >
-                    <FileText size={16} className="mr-2" />
-                    Reporte General
-                </Button>
-                <Button 
-                    variant="outline" 
-                    onClick={() => setIsIndividualReportOpen(true)}
-                    title="Reporte mensual de un bombero específico"
-                >
-                    <UserIcon size={16} className="mr-2" />
-                    Reportes por Bombero
-                </Button>
-            </>
-          )}
 
-          <Button onClick={() => { setSelectedArresto(null); setFormType('INFRACCION'); setIsFormOpen(true); }} variant={(isSupervisor || isAdmin) ? "default" : "outline"}>
+
+          <Button onClick={() => { setSelectedArresto(null); setFormType('INFRACCION'); setIsFormOpen(true); }} variant="default">
             <Plus size={20} className="mr-2" />
             Asignar Arresto
           </Button>
@@ -381,22 +253,34 @@ const ArrestosPage = () => {
       </div>
 
       {/* Balance Card */}
-      {!isAdmin && (
-        <Card className="bg-primary/5 border-primary/10 overflow-hidden relative">
+      {!isAdmin && !isSupervisor && (
+        <Card className={cn(
+            "overflow-hidden relative border",
+            isExcedido ? "bg-red-50 border-red-200" : "bg-primary/5 border-primary/10"
+        )}>
           <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
-            <Clock size={120} className="text-primary" />
+            <Clock size={120} className={isExcedido ? "text-red-500" : "text-primary"} />
           </div>
           <CardContent className="p-6">
             <div className="flex flex-col md:flex-row md:items-center gap-6">
-              <div className="bg-white p-4 rounded-xl shadow-sm border flex flex-col items-center justify-center min-w-[5rem] min-h-[5rem] shrink-0">
-                <span className="text-3xl font-bold text-primary">{horasCompletas}h {minutosRestantes}m</span>
-                <span className="text-xs text-slate-400">({balance} min)</span>
+              <div className={cn(
+                  "p-4 rounded-xl shadow-sm border flex flex-col items-center justify-center min-w-[5rem] min-h-[5rem] shrink-0 bg-white",
+                  isExcedido ? "border-red-200" : ""
+              )}>
+                <span className={cn("text-3xl font-bold", isExcedido ? "text-red-600" : "text-primary")}>
+                    {horasCompletas}h {minutosRestantes}m
+                </span>
+                <span className={cn("text-xs", isExcedido ? "text-red-400" : "text-slate-400")}>({balance} min)</span>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-slate-800">Tus Horas de Arresto Pendientes</h3>
-                <p className="text-slate-600 max-w-md">
-                  Minutos que debes cubrir para estar al día. 
-                  Reporta tus actividades extras para que sean descontadas tras la validación.
+                <h3 className={cn("text-lg font-bold", isExcedido ? "text-red-800" : "text-slate-800")}>
+                    Tus Horas de Arresto Pendientes
+                </h3>
+                <p className={cn("max-w-md mt-1", isExcedido ? "text-red-600/80 font-medium" : "text-slate-600")}>
+                  {isExcedido 
+                    ? `¡ALERTA! Has superado el límite máximo de ${userReglas.maxMinutosArresto} minutos para tu condición (${userCondicion}).` 
+                    : `Minutos que debes cubrir para estar al día. Tu límite máximo es de ${userReglas.maxMinutosArresto} minutos (${userCondicion}).`
+                  }
                 </p>
               </div>
             </div>
@@ -405,75 +289,325 @@ const ArrestosPage = () => {
       )}
 
       {/* Tabs de Listado */}
-      <Tabs defaultValue="recibidos" onValueChange={(v) => setActiveTab(v as any)}>
-        <TabsList className="grid w-full grid-cols-2 md:w-auto md:inline-grid md:grid-cols-3 mb-4">
-          <TabsTrigger value="recibidos" className="flex items-center gap-2">
-            <ArrowDownCircle size={14} />
-            Mis Arrestos (Recibidos)
-          </TabsTrigger>
-          <TabsTrigger value="asignados" className="flex items-center gap-2">
-            <ArrowUpCircle size={14} />
-            Arrestos Asignados
-          </TabsTrigger>
-          {(isSupervisor || isAdmin) && (
-            <TabsTrigger value="global" className="flex items-center gap-2">
-              <ListTodo size={14} />
-              Gestión Global
+      <Tabs defaultValue={isAdmin || isSupervisor ? "asignados" : "recibidos"} onValueChange={(v) => setActiveTab(v as any)}>
+        <TabsList className={cn(
+          "grid w-full mb-4",
+          isAdmin || isSupervisor 
+            ? "grid-cols-3 md:w-auto md:inline-grid md:grid-cols-3" 
+            : "grid-cols-2 md:w-auto md:inline-grid md:grid-cols-4"
+        )}>
+          {!isAdmin && !isSupervisor && (
+            <TabsTrigger value="recibidos" className="flex items-center gap-2">
+              <ArrowDownCircle size={14} />
+              Mis Arrestos
             </TabsTrigger>
           )}
+          <TabsTrigger value="asignados" className="flex items-center gap-2">
+            <ArrowUpCircle size={14} />
+            Asignados
+          </TabsTrigger>
+          <TabsTrigger value="global" className="flex items-center gap-2">
+            <ListTodo size={14} />
+            Gestión Global
+          </TabsTrigger>
+          <TabsTrigger value="balance" className="flex items-center gap-2">
+            <FileSpreadsheet size={14} />
+            Balance
+          </TabsTrigger>
         </TabsList>
 
+        {activeTab === 'balance' && (
+          <div className="flex flex-col md:flex-row gap-4 mb-4 items-end bg-white p-4 rounded-lg border shadow-sm">
+            <div className="w-full md:w-48">
+              <Label className="text-xs mb-1 block">Año</Label>
+              <select 
+                value={selectedYear} 
+                onChange={(e) => setSelectedYear(Number(e.target.value))}
+                className="w-full flex h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                {[2024, 2025, 2026, 2027].map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+            <div className="w-full md:w-48">
+              <Label className="text-xs mb-1 block">Mes</Label>
+              <select 
+                value={selectedMonth} 
+                onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                className="w-full flex h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((m, i) => (
+                  <option key={m} value={i}>{m}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1 text-right text-xs text-slate-500 italic pb-2 flex items-center justify-end gap-4">
+              <span>Balance acumulado hasta finales de {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][selectedMonth]} {selectedYear}.</span>
+              {(isAdmin || isSupervisor) && (
+                <Button 
+                    size="sm"
+                    variant="outline" 
+                    onClick={() => setIsGeneralReportOpen(true)}
+                    className="bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary text-base"
+                >
+                    <FileSpreadsheet size={16} className="mr-2" />
+                    Descargar Balance
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
         <Card>
-            <CardContent className="p-0">
-                {isLoading ? (
-                    <div className="p-12 text-center text-slate-500">
-                        <RefreshCw className="mx-auto mb-4 animate-spin opacity-20" size={48} />
-                        Cargando historial...
-                    </div>
-                ) : !historial || historial.length === 0 ? (
-                    <div className="p-12 text-center text-slate-500">
-                        <History size={48} className="mx-auto mb-4 opacity-20" />
-                        No hay registros en esta categoría.
-                    </div>
-                ) : (
-                    <>
-                        <div className={cn("transition-opacity duration-200", isPlaceholderData ? "opacity-50" : "opacity-100")}>
-                            {renderTable([...historial].sort((a, b) => {
-                                const timeA = a.fechaRegistro ? new Date(a.fechaRegistro).getTime() : 0;
-                                const timeB = b.fechaRegistro ? new Date(b.fechaRegistro).getTime() : 0;
-                                return timeB - timeA;
-                            }))}
-                        </div>
-                        
-                        {/* Controles de Paginación */}
-                        {totalPages > 1 && (
-                            <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t">
-                                <p className="text-sm text-slate-500">
-                                    Página <span className="font-medium text-slate-900">{page}</span> de <span className="font-medium text-slate-900">{totalPages}</span>
-                                </p>
-                                <div className="flex gap-2">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setPage(p => Math.max(1, p - 1))}
-                                        disabled={page === 1 || isLoading}
-                                    >
-                                        Anterior
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                                        disabled={page === totalPages || isLoading}
-                                    >
-                                        Siguiente
-                                    </Button>
-                                </div>
-                            </div>
+          <CardContent className="p-0">
+            {isLoading ? (
+              <div className="p-12 text-center text-slate-500">
+                <RefreshCw className="mx-auto mb-4 animate-spin opacity-20" size={48} />
+                Cargando información...
+              </div>
+            ) : activeTab === 'balance' ? (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-slate-50/50">
+                      <th className="px-4 py-3 text-center font-semibold text-slate-700 w-12">Nº</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Personal</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Jerarquía</th>
+                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Condición</th>
+                      <th className="px-4 py-3 text-center font-semibold text-slate-700">Minutos</th>
+                      <th className="px-4 py-3 text-center font-semibold text-slate-700">Límite</th>
+                      <th className="px-4 py-3 text-center font-semibold text-slate-700">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {balancesData.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                          No se encontraron bomberos.
+                        </td>
+                      </tr>
+                    ) : (
+                      balancesData.map((b) => (
+                        <tr key={b.uid} className={cn(
+                          "hover:bg-slate-50/50 transition-colors",
+                          b.excedido ? "bg-red-50/30" : ""
+                        )}>
+                          <td className="px-4 py-3 text-center font-medium text-slate-500">{b.num}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">{b.nombre}</td>
+                          <td className="px-4 py-3 text-slate-600">{b.rango}</td>
+                          <td className="px-4 py-3 text-slate-600">
+                            <Badge variant="outline" className="font-normal">{b.condicion}</Badge>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={cn(
+                              "font-bold px-2 py-1 rounded",
+                              b.excedido ? "text-red-700 bg-red-100" : "text-slate-700"
+                            )}>
+                              {b.balance} min
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center text-slate-500">{b.limite}</td>
+                          <td className="px-4 py-3 text-center">
+                            {b.excedido ? (
+                              <Badge className="bg-red-100 text-red-700 border-red-200">EXCEDIDO</Badge>
+                            ) : (
+                              <Badge className="bg-green-100 text-green-700 border-green-200">NORMAL</Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <>
+                {activeTab === 'recibidos' && (
+                  <div className="px-4 py-3 border-b bg-slate-50/50 flex items-center justify-between">
+                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                      <button 
+                        onClick={() => setRecibidosSubTab('infracciones')}
+                        className={cn(
+                          "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
+                          recibidosSubTab === 'infracciones' 
+                            ? "bg-white text-slate-900 shadow-sm" 
+                            : "text-slate-500 hover:text-slate-700"
                         )}
-                    </>
+                      >
+                        Infracciones
+                      </button>
+                      <button 
+                        onClick={() => setRecibidosSubTab('pagos')}
+                        className={cn(
+                          "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
+                          recibidosSubTab === 'pagos' 
+                            ? "bg-white text-slate-900 shadow-sm" 
+                            : "text-slate-500 hover:text-slate-700"
+                        )}
+                      >
+                        Pagos Realizados
+                      </button>
+                    </div>
+                    <div className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">
+                      {recibidosSubTab === 'infracciones' ? 'Arrestos por cumplir' : 'Historial de pagos'}
+                    </div>
+                  </div>
                 )}
-            </CardContent>
+
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50/50">
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Fecha</th>
+                        {(activeTab === 'global' || activeTab === 'asignados') && <th className="px-4 py-3 text-left font-semibold text-slate-700">Bombero</th>}
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Tipo</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Minutos</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Motivo</th>
+                        {(activeTab === 'global' || (activeTab === 'recibidos' && recibidosSubTab === 'pagos')) && (
+                          <th className="px-4 py-3 text-left font-semibold text-slate-700">Estado</th>
+                        )}
+                        <th className="px-4 py-3 text-right font-semibold text-slate-700">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {historial.length === 0 ? (
+                        <tr>
+                          <td 
+                            colSpan={
+                              5 + 
+                              (activeTab === 'global' || activeTab === 'asignados' ? 1 : 0) + 
+                              (activeTab === 'global' || (activeTab === 'recibidos' && recibidosSubTab === 'pagos') ? 1 : 0)
+                            } 
+                            className="px-4 py-12 text-center text-slate-500"
+                          >
+                            {activeTab === 'recibidos' && recibidosSubTab === 'pagos'
+                              ? 'Aún no has reportado ningún pago.'
+                              : activeTab === 'recibidos' && recibidosSubTab === 'infracciones'
+                              ? 'No tienes infracciones registradas. ¡Buen trabajo!'
+                              : 'No hay registros en esta categoría.'}
+                          </td>
+                        </tr>
+                      ) : (
+                        historial.map((arresto) => (
+                          <tr key={arresto.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-slate-900">
+                                {format(new Date(arresto.fechaRegistro), 'dd/MM/yyyy HH:mm')}
+                              </div>
+                              <div className="text-[10px] text-slate-400 italic">
+                                Suceso: {format(new Date(arresto.fecha), 'dd/MM/yyyy')}
+                              </div>
+                            </td>
+                            {(activeTab === 'global' || activeTab === 'asignados') && (
+                              <td className="px-4 py-3 font-semibold text-slate-900">
+                                {arresto.bomberoNombre || 'Bombero'}
+                              </td>
+                            )}
+                            <td className="px-4 py-3">
+                              <div className={cn(
+                                "flex items-center gap-1 text-xs font-medium",
+                                arresto.tipo === 'INFRACCION' ? "text-red-600" : "text-green-600"
+                              )}>
+                                {arresto.tipo === 'INFRACCION' ? <ArrowUpCircle size={14} /> : <ArrowDownCircle size={14} />}
+                                {arresto.tipo === 'INFRACCION' ? 'Infracción' : 'Pago'}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={cn(
+                                "font-bold",
+                                arresto.tipo === 'INFRACCION' ? "text-red-700" : "text-green-700"
+                              )}>
+                                {arresto.tipo === 'INFRACCION' ? '+' : '-'}{arresto.pagoDoble ? arresto.minutos * 2 : arresto.minutos} min
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 truncate text-slate-600" title={arresto.falta || arresto.motivo}>
+                              {arresto.falta || arresto.motivo || 'N/A'}
+                            </td>
+                            {(activeTab === 'global' || (activeTab === 'recibidos' && recibidosSubTab === 'pagos')) && (
+                              <td className="px-4 py-3">
+                                {arresto.tipo === 'INFRACCION' ? (
+                                  <span className="text-[10px] font-bold text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">N/A</span>
+                                ) : (
+                                  getStatusBadge(arresto.estado)
+                                )}
+                              </td>
+                            )}
+                            <td className="px-4 py-3 text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm"
+                                  onClick={() => { setSelectedArresto(arresto); setIsDetailsOpen(true); }}
+                                >
+                                  Detalles
+                                </Button>
+
+                                {(() => {
+                                  const createdAt = new Date(arresto.fechaRegistro);
+                                  const hoursSinceCreation = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
+                                  const isOwner = arresto.registradoPor === userData?.uid;
+                                  const canEdit = isSupervisor || isAdmin || (isOwner && hoursSinceCreation <= 48);
+                                  
+                                  return canEdit && (
+                                    <>
+                                        <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            onClick={() => { setSelectedArresto(arresto); setIsEditOpen(true); }}
+                                            className="text-slate-500 hover:text-primary"
+                                        >
+                                            <Edit2 size={16} />
+                                        </Button>
+                                        <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            onClick={() => handleDelete(arresto.id!)}
+                                            className="text-slate-500 hover:text-red-600"
+                                        >
+                                            <Trash2 size={16} />
+                                        </Button>
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t">
+                    <p className="text-sm text-slate-500">
+                      Página <span className="font-medium text-slate-900">{page}</span> de <span className="font-medium text-slate-900">{totalPages}</span>
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                        disabled={page === 1 || isPlaceholderData}
+                      >
+                        Anterior
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPage(p => p + 1)}
+                        disabled={page >= totalPages || isPlaceholderData}
+                      >
+                        Siguiente
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
         </Card>
       </Tabs>
 
@@ -516,53 +650,7 @@ const ArrestosPage = () => {
         )}
       </Dialog>
 
-      {/* Modal: Revisión de Pago */}
-      <Dialog
-        open={isReviewOpen}
-        onOpenChange={setIsReviewOpen}
-        title="Validación de Pago"
-        description="Verifica si la actividad realizada justifica el descuento de horas."
-      >
-        {selectedArresto && (
-            <div className="space-y-4 py-4">
-                <div className="bg-slate-50 p-4 rounded-lg border space-y-2">
-                    <p className="text-sm text-slate-500 uppercase font-bold">Detalles del reporte</p>
-                    <p className="text-sm"><strong>Bombero:</strong> {selectedArresto.bomberoNombre}</p>
-                    <p className="text-sm"><strong>Minutos reportados:</strong> {selectedArresto.minutos} min</p>
-                    <p className="text-sm"><strong>¿Pago Doble?:</strong> {selectedArresto.pagoDoble ? 'Sí' : 'No'}</p>
-                    <p className="text-sm"><strong>Observaciones:</strong> {selectedArresto.observaciones || 'N/A'}</p>
-                </div>
 
-                <div className="space-y-2">
-                    <Label htmlFor="notas">Notas de Revisión (Opcional)</Label>
-                    <textarea
-                        id="notas"
-                        className="w-full px-4 py-2 bg-white border rounded-md focus:ring-2 focus:ring-primary/20 outline-none transition-all min-h-[80px]"
-                        value={notasRevision}
-                        onChange={(e) => setNotasRevision(e.target.value)}
-                    />
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                    <Button 
-                        variant="destructive" 
-                        className="flex-1"
-                        disabled={reviewMutation.isPending}
-                        onClick={() => reviewMutation.mutate({ id: selectedArresto.id!, estado: 'RECHAZADO', notas: notasRevision })}
-                    >
-                        Rechazar
-                    </Button>
-                    <Button 
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                        disabled={reviewMutation.isPending}
-                        onClick={() => reviewMutation.mutate({ id: selectedArresto.id!, estado: 'PAGADO', notas: notasRevision })}
-                    >
-                        Validar Pago
-                    </Button>
-                </div>
-            </div>
-        )}
-      </Dialog>
 
       {/* Modal: Detalles del Arresto */}
       <Dialog
@@ -660,46 +748,12 @@ const ArrestosPage = () => {
         )}
       </Dialog>
 
-      {/* Modal: Selección de Bombero para Reporte Individual */}
-      <Dialog
-        open={isIndividualReportOpen}
-        onOpenChange={setIsIndividualReportOpen}
-        title="Generar Reporte Individual"
-        description="Selecciona el bombero para generar su reporte mensual detallado."
-      >
-        <div className="space-y-4 pt-4">
-            <Select 
-                label="Bombero"
-                value={selectedBomberoReport} 
-                onChange={(e: any) => setSelectedBomberoReport(e.target.value)}
-                options={[
-                    { label: 'Seleccionar bombero...', value: '' },
-                    ...(usuarios?.filter(u => u.rol === 'BOMBERO').map(u => ({ 
-                        label: u.nombre, 
-                        value: u.uid 
-                    })) || [])
-                ]}
-            />
-            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
-                <Button variant="outline" onClick={() => setIsIndividualReportOpen(false)}>
-                    Cancelar
-                </Button>
-                <Button variant="outline" className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-100" onClick={handleDownloadIndividualExcel} disabled={!selectedBomberoReport}>
-                    <FileSpreadsheet size={16} className="mr-2" /> Descargar Excel
-                </Button>
-                <Button onClick={handleDownloadIndividualReport} disabled={!selectedBomberoReport}>
-                    <FileText size={16} className="mr-2" /> Descargar PDF
-                </Button>
-            </div>
-        </div>
-      </Dialog>
-
       {/* Modal: Opciones Reporte General */}
       <Dialog
         open={isGeneralReportOpen}
         onOpenChange={setIsGeneralReportOpen}
-        title="Generar Reporte General"
-        description="Selecciona el formato para el reporte consolidado de todos los bomberos este mes."
+        title="Descargar Balance General"
+        description="Selecciona el formato para el balance de arrestos del personal durante este mes."
       >
         <div className="space-y-4 pt-4">
             <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">

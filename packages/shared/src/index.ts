@@ -1,5 +1,6 @@
-export { RolSchema, UsuarioSchema, PasswordChangeSchema } from './schemas/usuario.schema';
-export type { Rol, Usuario, CreateUsuarioInput } from './types/usuario.types';
+export { RolSchema, UsuarioSchema, PasswordChangeSchema, RangoSchema, CondicionSchema } from './schemas/usuario.schema';
+export type { Rol, Usuario, CreateUsuarioInput, Rango, Condicion } from './types/usuario.types';
+export { REGLAS_CONDICION } from './types/usuario.types';
 
 export { EstadoGuardiaSchema, GuardiaSchema } from './schemas/guardia.schema';
 export type { EstadoGuardia, Guardia } from './types/guardia.types';

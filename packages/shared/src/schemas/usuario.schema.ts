@@ -2,6 +2,28 @@ import { z } from 'zod';
 
 // Esquema de los roles de los usuarios
 export const RolSchema = z.enum(['ADMIN', 'SUPERVISOR', 'BOMBERO']);
+
+export const RangoSchema = z.enum([
+    'ASP/ALUM',
+    'BOMBERO_RASO',
+    'CABO_PRIMERO',
+    'CABO_SEGUNDO',
+    'SARGENTO_PRIMERO',
+    'SARGENTO_SEGUNDO',
+    'SARGENTO_MAYOR',
+    'TENIENTE',
+    'CAPITAN',
+    'DISTINGUIDO'
+]);
+
+export const CondicionSchema = z.enum([
+    'REGULAR',
+    'TESISTA',
+    'COMANDANTE',
+    'EX_COMANDANTE',
+    'EGRESADO',
+    'ESPECIAL_12H'
+]);
  
 // Esquema del usuario
 export const UsuarioSchema = z.object({
@@ -20,7 +42,8 @@ export const UsuarioSchema = z.object({
     fechaRegistro: z.any().optional(), // Flexible para evitar errores de validación Date/String
     fechaActualizacion: z.any().optional(), // Flexible para auditoría
     minutosArresto: z.number().default(0), // Contador de minutos de arresto/trabajo pendientes
-    condicion: z.enum(['REGULAR', 'NO_REGULAR']).default('REGULAR') // Condición del bombero
+    rango: RangoSchema.optional(), // Jerarquía del bombero
+    condicion: CondicionSchema.default('REGULAR') // Condición del bombero
 });
 
 // Esquema para el cambio de contraseña

@@ -49,7 +49,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
     { label: 'Inicio', icon: <LayoutDashboard size={20} />, path: '/', show: true },
     { label: 'Mis Guardias', icon: <Calendar size={20} />, path: '/guardias', show: !isAdmin },
     { label: 'Horas / Arrestos', icon: <ShieldAlert size={20} />, path: '/arrestos', show: !isAdmin },
-    { label: isAdmin ? 'Gestión Usuarios' : 'Directorio', icon: <Users size={20} />, path: '/usuarios', show: isAdmin || isSupervisor },
+    { label: isAdmin || isSupervisor ? 'Directorio / Gestión' : 'Directorio', icon: <Users size={20} />, path: '/usuarios', show: true },
     { label: 'Auditoría', icon: <History size={20} />, path: '/auditoria', show: isAdmin },
   ];
 
@@ -145,7 +145,9 @@ const MainLayout = ({ children }: MainLayoutProps) => {
               </div>
               <div className="overflow-hidden flex-1">
                 <p className="text-sm font-semibold truncate text-slate-900">{userData?.nombre || 'Usuario'}</p>
-                <p className="text-[10px] text-slate-500 uppercase font-bold">{userData?.rol}</p>
+                <p className="text-[10px] text-slate-500 uppercase font-bold">
+                  {isAdmin ? 'Administrador' : isSupervisor ? 'Inspector General' : 'Bombero'}
+                </p>
               </div>
             </button>
 

@@ -11,6 +11,11 @@ export const crearUsuario = async (req: Request, res: Response) => {
     try {
         // Validamos los datos con el esquema de usuario
         const validatedData = UsuarioSchema.parse(req.body);
+        const requestingUser = (req as any).user;
+
+        if (requestingUser.rol === 'SUPERVISOR' && validatedData.rol && validatedData.rol !== 'BOMBERO') {
+            return res.status(403).json({ message: "Los inspectores solo pueden crear usuarios de tipo Bombero." });
+        }
 
         // 1. Crear el usuario en Firebase Auth (esto permite que haga login)
         // Por ahora asignamos una contraseña por defecto simple para facilitar el acceso inicial
@@ -147,6 +152,15 @@ export const actualizarUsuario = async (req: Request, res: Response) => {
                 message: "Error: usuario no encontrado"
             });
         }
+
+        const requestingUser = (req as any).user;
+        const targetUserData = doc.data() as any;
+
+        if (requestingUser.rol === 'SUPERVISOR') {
+            if (targetUserData.rol !== 'BOMBERO' || (validatedData.rol && validatedData.rol !== 'BOMBERO')) {
+                return res.status(403).json({ message: "Los inspectores solo pueden editar usuarios de tipo Bombero." });
+            }
+        }
         
         // 1. Sincronizamos con Firebase Auth si se modifican campos relevantes
         if (validatedData.nombre !== undefined || validatedData.activo !== undefined || validatedData.rol !== undefined || validatedData.email !== undefined) {
@@ -253,6 +267,13 @@ export const eliminarUsuario = async(req: Request, res: Response) =>{
             return res.status(404).json({
                 message: "Error: usuario no encontrado"
             });
+        }
+
+        const requestingUser = (req as any).user;
+        const targetUserData = doc.data() as any;
+
+        if (requestingUser.rol === 'SUPERVISOR' && targetUserData.rol !== 'BOMBERO') {
+            return res.status(403).json({ message: "Los inspectores solo pueden eliminar usuarios de tipo Bombero." });
         }
 
         // 2. Eliminar de Firebase Auth (esto impide que vuelva a iniciar sesión)

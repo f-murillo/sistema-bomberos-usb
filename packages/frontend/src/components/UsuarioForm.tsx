@@ -9,6 +9,7 @@ import { Input } from './ui/input';
 import { Select } from './ui/select-simple';
 import { Label } from './ui/label';
 import { Loader2 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 interface UsuarioFormProps {
   usuario?: Usuario; // Si viene un usuario, estamos en modo edición
@@ -18,6 +19,7 @@ interface UsuarioFormProps {
 
 const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   const isEditing = !!usuario?.uid;
 
   const {
@@ -45,6 +47,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
         nombre: usuario.nombre,
         email: usuario.email,
         rol: usuario.rol,
+        rango: usuario.rango,
         condicion: usuario.condicion || 'REGULAR',
         activo: usuario.activo !== undefined ? Boolean(usuario.activo) : true,
       });
@@ -61,6 +64,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
         nombre: '',
         email: '',
         rol: 'BOMBERO',
+        rango: undefined,
         condicion: 'REGULAR',
         activo: true,
       });
@@ -78,6 +82,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
           nombre: data.nombre,
           email: data.email,
           rol: data.rol,
+          rango: data.rango,
           condicion: data.condicion,
           activo: data.activo,
           telefono: phoneDigits ? `${prefix}${phoneDigits}` : ""
@@ -87,6 +92,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
       // En creación
       return api.post('/usuarios', {
         ...data,
+        rango: data.rango,
         condicion: data.condicion,
         telefono: phoneDigits ? `${prefix}${phoneDigits}` : ""
       });
@@ -184,26 +190,54 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
           )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Select 
-            label="Rol / Permisos"
+            label="Jerarquía / Rango"
             options={[
-              { label: 'Bombero', value: 'BOMBERO' },
-              { label: 'Supervisor', value: 'SUPERVISOR' },
-              { label: 'Administrador', value: 'ADMIN' },
+              { label: 'Aspirante / Alumno', value: 'ASP/ALUM' },
+              { label: 'Bombero Raso', value: 'BOMBERO_RASO' },
+              { label: 'Distinguido', value: 'DISTINGUIDO' },
+              { label: 'Cabo Segundo', value: 'CABO_SEGUNDO' },
+              { label: 'Cabo Primero', value: 'CABO_PRIMERO' },
+              { label: 'Sargento Segundo', value: 'SARGENTO_SEGUNDO' },
+              { label: 'Sargento Primero', value: 'SARGENTO_PRIMERO' },
+              { label: 'Sargento Mayor', value: 'SARGENTO_MAYOR' },
+              { label: 'Teniente', value: 'TENIENTE' },
+              { label: 'Capitán', value: 'CAPITAN' }
             ]}
-            {...register('rol')}
-            error={errors.rol?.message as string}
+            {...register('rango')}
+            error={errors.rango?.message as string}
           />
 
           <Select 
-            label="Condición"
+            label="Condición de Servicio"
             options={[
               { label: 'Regular', value: 'REGULAR' },
-              { label: 'No Regular', value: 'NO_REGULAR' },
+              { label: 'Tesista', value: 'TESISTA' },
+              { label: 'Egresado', value: 'EGRESADO' },
+              { label: 'Especial 12 horas', value: 'ESPECIAL_12H' },
+              { label: 'Comandante', value: 'COMANDANTE' },
+              { label: 'Ex-Comandante', value: 'EX_COMANDANTE' }
             ]}
             {...register('condicion')}
             error={errors.condicion?.message as string}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Select 
+            label="Rol del Sistema"
+            options={
+              isAdmin ? [
+                { label: 'Bombero', value: 'BOMBERO' },
+                { label: 'Inspector General', value: 'SUPERVISOR' },
+                { label: 'Administrador', value: 'ADMIN' },
+              ] : [
+                { label: 'Bombero', value: 'BOMBERO' }
+              ]
+            }
+            {...register('rol')}
+            error={errors.rol?.message as string}
           />
 
           <Select 

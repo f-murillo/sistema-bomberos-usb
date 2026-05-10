@@ -22,7 +22,7 @@ const TURNOS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI
 const MOTIVOS = ['Desconocido', 'Diligencias Academicas', 'Diligencias Laborales', 'Diligencias Personales', 'Problemas de Transporte', 'Otro'];
 
 const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProps) => {
-    const { userData } = useAuth();
+    const { userData, isAdmin, isSupervisor } = useAuth();
     const queryClient = useQueryClient();
     const isInfraccion = tipo === 'INFRACCION';
     const isEditing = !!initialData?.id && initialData.tipo === tipo;
@@ -126,9 +126,11 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-2 overflow-y-auto max-h-[70vh] px-1">
             
-            {isInfraccion && (
+            {(isInfraccion || isAdmin || isSupervisor) && (
                 <div className="space-y-2">
-                    <Label htmlFor="bomberoId">Seleccionar Funcionario (Infractor)</Label>
+                    <Label htmlFor="bomberoId">
+                        {isInfraccion ? 'Seleccionar Funcionario (Infractor)' : 'Seleccionar Bombero'}
+                    </Label>
                     <div className="relative">
                         <User className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                         <select
@@ -138,7 +140,7 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
                             disabled={isEditing}
                         >
                             <option value="">Seleccione un bombero...</option>
-                            {bomberos?.filter(u => u.uid !== userData?.uid && u.rol !== 'ADMIN').map(u => (
+                            {bomberos?.filter(u => u.uid !== userData?.uid && u.rol !== 'ADMIN' && u.rol !== 'SUPERVISOR').map(u => (
                                 <option key={u.uid} value={u.uid}>{u.nombre} ({u.condicion || 'REGULAR'})</option>
                             ))}
                             {isEditing && initialData?.bomberoNombre && (

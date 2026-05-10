@@ -90,7 +90,7 @@ const UsuariosPage = () => {
   const getRoleBadge = (rol: string) => {
     switch (rol) {
       case 'ADMIN': return <Badge variant="destructive">Administrador</Badge>;
-      case 'SUPERVISOR': return <Badge variant="default">Supervisor</Badge>;
+      case 'SUPERVISOR': return <Badge variant="default">Inspector General</Badge>;
       case 'BOMBERO': return <Badge variant="secondary">Bombero</Badge>;
       default: return <Badge variant="outline">{rol}</Badge>;
     }
@@ -102,13 +102,12 @@ const UsuariosPage = () => {
     (u.email?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
-  const title = isAdmin ? "Gestión de Usuarios" : "Directorio de Personal";
-  const subtitle = isAdmin 
+  const title = (isAdmin || isSupervisor) ? "Gestión de Usuarios" : "Directorio de Personal";
+  const subtitle = (isAdmin || isSupervisor) 
     ? "Administra los permisos y roles del personal del cuerpo de bomberos."
-    : "Consulta el contacto del personal y administradores del sistema.";
+    : "Consulta el contacto del personal del sistema.";
 
-  // Organizar usuarios por grupos para el supervisor
-  const staffUsers = filteredUsuarios?.filter(u => u.rol !== 'ADMIN') || [];
+  const displayedUsers = isAdmin ? (filteredUsuarios || []) : (filteredUsuarios?.filter(u => u.rol !== 'ADMIN') || []);
   const adminUsers = filteredUsuarios?.filter(u => u.rol === 'ADMIN') || [];
 
   return (
@@ -118,7 +117,7 @@ const UsuariosPage = () => {
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">{title}</h1>
           <p className="text-sm sm:text-base text-slate-500">{subtitle}</p>
         </div>
-        {isAdmin && (
+        {(isAdmin || isSupervisor) && (
           <Button className="w-full sm:w-auto flex items-center justify-center gap-2 shadow-sm" onClick={handleCreate}>
             <UserPlus size={18} />
             Registrar Usuario
@@ -175,7 +174,7 @@ const UsuariosPage = () => {
         {isSupervisor && (
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             <Shield className="text-primary" size={20} />
-            Cuerpo de Bomberos
+            Personal del Sistema
           </h2>
         )}
         
@@ -188,32 +187,32 @@ const UsuariosPage = () => {
                   <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider">Contacto</th>
                   <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider">Rol</th>
                   <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider">Estado</th>
-                  {isAdmin && <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider text-right">Acciones</th>}
+                  {(isAdmin || isSupervisor) && <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider text-right">Acciones</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {isLoading ? (
                   [...Array(3)].map((_, i) => (
                     <tr key={i} className="animate-pulse">
-                      <td colSpan={isAdmin ? 5 : 4} className="px-6 py-8">
+                      <td colSpan={(isAdmin || isSupervisor) ? 5 : 4} className="px-6 py-8">
                         <div className="h-4 bg-slate-100 rounded w-full"></div>
                       </td>
                     </tr>
                   ))
                 ) : isError ? (
                   <tr>
-                    <td colSpan={isAdmin ? 5 : 4} className="px-6 py-12 text-center text-destructive font-medium bg-destructive/5">
+                    <td colSpan={(isAdmin || isSupervisor) ? 5 : 4} className="px-6 py-12 text-center text-destructive font-medium bg-destructive/5">
                       Error al cargar los usuarios.
                     </td>
                   </tr>
-                ) : (isSupervisor ? staffUsers : filteredUsuarios || [])?.length === 0 ? (
+                ) : displayedUsers?.length === 0 ? (
                   <tr>
-                    <td colSpan={isAdmin ? 5 : 4} className="px-6 py-12 text-center text-slate-500 font-medium">
+                    <td colSpan={(isAdmin || isSupervisor) ? 5 : 4} className="px-6 py-12 text-center text-slate-500 font-medium">
                       No se encontraron resultados en esta categoría.
                     </td>
                   </tr>
                 ) : (
-                  (isSupervisor ? staffUsers : filteredUsuarios || [])?.map((usuario) => (
+                  displayedUsers?.map((usuario) => (
                     <tr key={usuario.uid || usuario.email} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4">
                         <div className="font-medium text-slate-900">{usuario.nombre}</div>
@@ -250,27 +249,29 @@ const UsuariosPage = () => {
                           {usuario.activo ? 'Activo' : 'Inactivo'}
                         </Badge>
                       </td>
-                      {isAdmin && (
+                      {(isAdmin || isSupervisor) && (
                         <td className="px-6 py-4 text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-8 w-8 text-slate-500 hover:text-primary"
-                              onClick={() => handleEdit(usuario)}
-                            >
-                              <Pencil size={16} />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-8 w-8 text-slate-500 hover:text-destructive"
-                              onClick={() => handleDelete(usuario)}
-                              disabled={deleteMutation.isPending}
-                            >
-                              <Trash2 size={16} />
-                            </Button>
-                          </div>
+                          {(isAdmin || (isSupervisor && usuario.rol === 'BOMBERO')) && (
+                            <div className="flex justify-end gap-2">
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 text-slate-500 hover:text-primary"
+                                onClick={() => handleEdit(usuario)}
+                              >
+                                <Pencil size={16} />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8 text-slate-500 hover:text-destructive"
+                                onClick={() => handleDelete(usuario)}
+                                disabled={deleteMutation.isPending}
+                              >
+                                <Trash2 size={16} />
+                              </Button>
+                            </div>
+                          )}
                         </td>
                       )}
                     </tr>

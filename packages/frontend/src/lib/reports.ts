@@ -2,7 +2,9 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format, subDays, startOfMonth, isAfter } from 'date-fns';
 import { es } from 'date-fns/locale';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+import { type Usuario, type Arresto, REGLAS_CONDICION } from '@bomberos-usb/shared';
 
 export const generateGuardsReport = (guardias: any[], options: { period: 'semanal' | 'mensual', bomberoId?: string, bomberoNombre?: string } = { period: 'mensual' }) => {
   const doc = new jsPDF();
@@ -263,57 +265,98 @@ export const generateArrestosReport = (arrestos: any[], options: { period: 'mens
   doc.save(`reporte-arrestos-${nameSuffix}-${format(now, 'yyyy-MM-dd')}.pdf`);
 };
 
-export const generateGuardsExcel = (guardias: any[], options: { period: 'semanal' | 'mensual', bomberoId?: string, bomberoNombre?: string } = { period: 'mensual' }) => {
+export const generateGuardsExcel = async (guardias: any[], options: { period: 'mensual', bomberoId?: string, bomberoNombre?: string } = { period: 'mensual' }) => {
   const now = new Date();
-  const threshold = options.period === 'semanal' ? subDays(now, 7) : startOfMonth(now);
-  let filtered = guardias.filter(g => {
-    const fecha = g.fecha?.toDate ? g.fecha.toDate() : new Date(g.fecha);
-    return isAfter(fecha, threshold);
-  });
+  const threshold = startOfMonth(now);
+  let filtered = guardias.filter(g => isAfter(new Date(g.fecha?.toDate ? g.fecha.toDate() : g.fecha), threshold));
 
   if (options.bomberoId) {
     filtered = filtered.filter(g => g.bomberoId === options.bomberoId);
   }
 
-  const data = filtered.map(g => ({
-    'Fecha': format(g.fecha?.toDate ? g.fecha.toDate() : new Date(g.fecha), 'dd/MM/yyyy'),
-    'Bombero': g.bomberoNombre || 'Sin Nombre',
-    'Turno': g.turno,
-    'Sede': g.sede || 'N/A',
-    'Estado': g.estado,
-    'Minutos Programados': g.minutos || 0,
-    'Minutos Efectivos': g.estado === 'COMPLETADA' ? (g.minutosEfectivos ?? g.minutos ?? 0) : 0,
-    'Déficit': g.estado === 'COMPLETADA' ? Math.max(0, (g.minutos || 0) - (g.minutosEfectivos ?? g.minutos ?? 0)) : (g.estado === 'INASISTENCIA' ? (g.minutos || 0) : 0)
-  }));
+  const workbook = new ExcelJS.Workbook();
+  const detailSheet = workbook.addWorksheet('Detalle de Guardias');
 
-  const worksheet = XLSX.utils.json_to_sheet(data);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Detalle de Guardias');
+  // 1. Hoja de Detalle
+  detailSheet.columns = [
+    { header: 'Fecha', key: 'fecha', width: 15 },
+    { header: 'Bombero', key: 'nombre', width: 25 },
+    { header: 'Turno', key: 'turno', width: 12 },
+    { header: 'Sede', key: 'sede', width: 15 },
+    { header: 'Estado', key: 'estado', width: 15 },
+    { header: 'Min. Programados', key: 'prog', width: 18 },
+    { header: 'Min. Efectivos', key: 'efect', width: 18 },
+    { header: 'Déficit', key: 'deficit', width: 12 }
+  ];
 
-  // Calcular resumen por bombero (siempre se añade como segunda pestaña)
+  detailSheet.getRow(1).font = { bold: true };
+  detailSheet.getRow(1).eachCell(cell => {
+    cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: {argb: 'FFF8F9FA'} };
+  });
+
+  filtered.forEach(g => {
+    const prog = g.minutos || 0;
+    const efect = g.estado === 'COMPLETADA' ? (g.minutosEfectivos ?? g.minutos ?? 0) : 0;
+    const deficit = g.estado === 'COMPLETADA' ? Math.max(0, prog - efect) : (g.estado === 'INASISTENCIA' ? prog : 0);
+    
+    const row = detailSheet.addRow({
+      fecha: format(g.fecha?.toDate ? g.fecha.toDate() : new Date(g.fecha), 'dd/MM/yyyy'),
+      nombre: g.bomberoNombre || 'Sin Nombre',
+      turno: g.turno,
+      sede: g.sede || 'N/A',
+      estado: g.estado,
+      prog: prog,
+      efect: efect,
+      deficit: deficit
+    });
+    row.eachCell(cell => {
+      cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+    });
+  });
+
+  // 2. Hoja de Resumen
+  const summarySheet = workbook.addWorksheet('Resumen de Totales');
+  summarySheet.columns = [
+    { header: 'Bombero', key: 'nombre', width: 35 },
+    { header: 'Min. Programados', key: 'prog', width: 18 },
+    { header: 'Min. Efectivos', key: 'efect', width: 18 },
+    { header: 'Déficit', key: 'deficit', width: 15 }
+  ];
+
+  summarySheet.getRow(1).font = { bold: true };
+  summarySheet.getRow(1).eachCell(cell => {
+    cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: {argb: 'FFE9ECEF'} };
+  });
+
   const summaryMap = filtered.reduce((acc: any, g: any) => {
     const id = g.bomberoId || 'unknown';
-    if (!acc[id]) acc[id] = { 'Bombero': g.bomberoNombre || 'Sin Nombre', 'Prog.': 0, 'Efect.': 0, 'Déficit': 0 };
+    if (!acc[id]) acc[id] = { nombre: g.bomberoNombre || 'Sin Nombre', prog: 0, efect: 0, deficit: 0 };
     
     const prog = g.minutos || 0;
     const efect = g.estado === 'COMPLETADA' ? (g.minutosEfectivos ?? g.minutos ?? 0) : 0;
     const deficit = g.estado === 'COMPLETADA' ? Math.max(0, prog - efect) : (g.estado === 'INASISTENCIA' ? prog : 0);
     
-    acc[id]['Prog.'] += prog;
-    acc[id]['Efect.'] += efect;
-    acc[id]['Déficit'] += deficit;
+    acc[id].prog += prog;
+    acc[id].efect += efect;
+    acc[id].deficit += deficit;
     return acc;
   }, {});
 
-  const summaryData = Object.values(summaryMap);
-  const summarySheet = XLSX.utils.json_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen de Totales');
+  Object.values(summaryMap).forEach((val: any) => {
+    const row = summarySheet.addRow(val);
+    row.eachCell(cell => {
+      cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+    });
+  });
 
   const nameSuffix = options.bomberoNombre ? options.bomberoNombre.replace(/\s+/g, '_') : 'General';
-  XLSX.writeFile(workbook, `reporte-guardias-${nameSuffix}-${format(now, 'yyyy-MM-dd')}.xlsx`);
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(new Blob([buffer]), `reporte-guardias-${nameSuffix}-${format(now, 'yyyy-MM-dd')}.xlsx`);
 };
 
-export const generateArrestosExcel = (arrestos: any[], options: { period: 'mensual', bomberoId?: string, bomberoNombre?: string } = { period: 'mensual' }) => {
+export const generateArrestosExcel = async (arrestos: Arresto[], options: { period: 'mensual', bomberoId?: string, bomberoNombre?: string } = { period: 'mensual' }) => {
   const now = new Date();
   const threshold = startOfMonth(now);
   let filtered = arrestos.filter(a => isAfter(new Date(a.fechaRegistro), threshold));
@@ -322,47 +365,198 @@ export const generateArrestosExcel = (arrestos: any[], options: { period: 'mensu
     filtered = filtered.filter(a => a.bomberoId === options.bomberoId);
   }
 
-  const data = filtered.map(a => {
-    const mins = Number(a.minutos || 0);
-    const balance = a.tipo === 'INFRACCION' ? mins : (mins * (a.pagoDoble ? 2 : 1) * -1);
-    return {
-      'Fecha Registro': format(new Date(a.fechaRegistro), 'dd/MM/yyyy HH:mm'),
-      'Fecha Suceso': format(new Date(a.fecha), 'dd/MM/yyyy'),
-      'Bombero': a.bomberoNombre || 'Sin Nombre',
-      'Tipo': a.tipo === 'INFRACCION' ? 'Infracción' : 'Pago',
-      'Minutos Base': mins,
-      'Pago Doble': a.pagoDoble ? 'Sí' : 'No',
-      'Impacto Balance': balance,
-      'Estado': a.estado,
-      'Motivo / Falta': a.falta || a.motivo || 'N/A'
-    };
+  const workbook = new ExcelJS.Workbook();
+  const detailSheet = workbook.addWorksheet('Detalle de Arrestos');
+
+  // 1. Configurar Hoja de Detalle
+  detailSheet.columns = [
+    { header: 'Fecha Registro', key: 'reg', width: 22 },
+    { header: 'Fecha Suceso', key: 'suc', width: 15 },
+    { header: 'Bombero', key: 'nombre', width: 25 },
+    { header: 'Tipo', key: 'tipo', width: 12 },
+    { header: 'Minutos Base', key: 'mins', width: 14 },
+    { header: 'Pago Doble', key: 'doble', width: 12 },
+    { header: 'Impacto Balance', key: 'balance', width: 16 },
+    { header: 'Estado', key: 'estado', width: 12 },
+    { header: 'Motivo / Falta', key: 'motivo', width: 40 }
+  ];
+
+  // Estilo encabezado detalle
+  detailSheet.getRow(1).font = { bold: true };
+  detailSheet.getRow(1).alignment = { horizontal: 'center' };
+  detailSheet.getRow(1).eachCell(cell => {
+    cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: {argb: 'FFF8F9FA'} };
   });
 
-  const worksheet = XLSX.utils.json_to_sheet(data);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Detalle de Arrestos');
+  filtered.forEach(a => {
+    const mins = Number(a.minutos || 0);
+    const balance = a.tipo === 'INFRACCION' ? mins : (mins * (a.pagoDoble ? 2 : 1) * -1);
+    const row = detailSheet.addRow({
+      reg: format(new Date(a.fechaRegistro), 'dd/MM/yyyy HH:mm'),
+      suc: format(new Date(a.fecha), 'dd/MM/yyyy'),
+      nombre: a.bomberoNombre || 'Sin Nombre',
+      tipo: a.tipo === 'INFRACCION' ? 'Infracción' : 'Pago',
+      mins: mins,
+      doble: a.pagoDoble ? 'Sí' : 'No',
+      balance: balance,
+      estado: a.estado,
+      motivo: a.falta || a.motivo || 'N/A'
+    });
+    row.eachCell(cell => {
+        cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+    });
+  });
 
-  // Calcular resumen de balances (siempre se añade como segunda pestaña)
+  // 2. Configurar Hoja de Resumen
+  const summarySheet = workbook.addWorksheet('Resumen de Balances');
+  summarySheet.columns = [
+    { header: 'Bombero', key: 'nombre', width: 35 },
+    { header: 'Infracciones (+)', key: 'plus', width: 18 },
+    { header: 'Pagos (-)', key: 'minus', width: 18 },
+    { header: 'Balance Final', key: 'final', width: 20 }
+  ];
+
+  summarySheet.getRow(1).font = { bold: true };
+  summarySheet.getRow(1).eachCell(cell => {
+    cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: {argb: 'FFE9ECEF'} };
+  });
+
   const summaryMap = filtered.reduce((acc: any, a: any) => {
     const id = a.bomberoId || 'unknown';
-    if (!acc[id]) acc[id] = { 'Bombero': a.bomberoNombre || 'Sin Nombre', 'Infracciones': 0, 'Pagos': 0, 'Balance Final': 0 };
+    if (!acc[id]) acc[id] = { nombre: a.bomberoNombre || 'Sin Nombre', plus: 0, minus: 0, final: 0 };
     
     const mins = Number(a.minutos || 0);
     if (a.tipo === 'INFRACCION') {
-        acc[id]['Infracciones'] += mins;
-        acc[id]['Balance Final'] += mins;
+        acc[id].plus += mins;
+        acc[id].final += mins;
     } else if (a.tipo === 'PAGO' && a.estado === 'PAGADO') {
         const pago = mins * (a.pagoDoble ? 2 : 1);
-        acc[id]['Pagos'] += pago;
-        acc[id]['Balance Final'] -= pago;
+        acc[id].minus += pago;
+        acc[id].final -= pago;
     }
     return acc;
   }, {});
 
-  const summaryData = Object.values(summaryMap);
-  const summarySheet = XLSX.utils.json_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(workbook, summarySheet, 'Resumen de Balances');
+  Object.values(summaryMap).forEach((val: any) => {
+    const row = summarySheet.addRow(val);
+    row.eachCell(cell => {
+        cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+    });
+  });
 
   const nameSuffix = options.bomberoNombre ? options.bomberoNombre.replace(/\s+/g, '_') : 'General';
-  XLSX.writeFile(workbook, `reporte-arrestos-${nameSuffix}-${format(now, 'yyyy-MM-dd')}.xlsx`);
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(new Blob([buffer]), `reporte-arrestos-${nameSuffix}-${format(now, 'yyyy-MM-dd')}.xlsx`);
+};
+
+/**
+ * Genera el reporte consolidado de balances (Imagen 3 del requerimiento) usando ExcelJS para estilos
+ */
+export const generateArrestosGeneralExcel = async (usuarios: Usuario[]) => {
+  const now = new Date();
+  const dateStr = format(now, 'dd/MM/yyyy');
+  
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Resumen de Balances');
+
+  // 1. Título principal unificado
+  worksheet.mergeCells('A1:G1');
+  const titleCell = worksheet.getCell('A1');
+  titleCell.value = `Minutos de Arresto al ${dateStr}`;
+  titleCell.font = { bold: true, size: 14 };
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  titleCell.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: 'FFE9ECEF' }
+  };
+  titleCell.border = {
+    top: { style: 'thin' },
+    left: { style: 'thin' },
+    bottom: { style: 'thin' },
+    right: { style: 'thin' }
+  };
+
+  // 2. Definir columnas y encabezados
+  worksheet.getRow(2).values = ['Nº', 'Personal', 'Jerarquía', 'Condición', 'Minutos', 'Límite', 'Estado'];
+  worksheet.columns = [
+    { key: 'num', width: 5 },
+    { key: 'nombre', width: 35 },
+    { key: 'rango', width: 18 },
+    { key: 'condicion', width: 18 },
+    { key: 'minutos', width: 12 },
+    { key: 'limite', width: 12 },
+    { key: 'estado', width: 12 }
+  ];
+
+  // Estilo para encabezados (Fila 2)
+  const headerRow = worksheet.getRow(2);
+  headerRow.font = { bold: true };
+  headerRow.alignment = { horizontal: 'center' };
+  headerRow.eachCell((cell) => {
+    cell.border = {
+      top: { style: 'thin' },
+      left: { style: 'thin' },
+      bottom: { style: 'thin' },
+      right: { style: 'thin' }
+    };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFF8F9FA' }
+    };
+  });
+
+  // 3. Agregar datos
+  const filteredUsers = usuarios
+    .filter(u => u.rol === 'BOMBERO')
+    .sort((a, b) => a.nombre.localeCompare(b.nombre));
+
+  filteredUsers.forEach((u, index) => {
+    const condicion = u.condicion || 'REGULAR';
+    const reglas = REGLAS_CONDICION[condicion] || REGLAS_CONDICION['REGULAR'];
+    const balance = u.minutosArresto || 0;
+    const isExcedido = balance >= reglas.maxMinutosArresto;
+
+    const row = worksheet.addRow({
+      num: index + 1,
+      nombre: u.nombre,
+      rango: u.rango || 'N/A',
+      condicion: condicion,
+      minutos: balance,
+      limite: reglas.maxMinutosArresto,
+      estado: isExcedido ? 'EXCEDIDO' : 'NORMAL'
+    });
+
+    // Bordes para todas las celdas de la fila
+    row.eachCell((cell, colNumber) => {
+      cell.border = {
+        top: { style: 'thin' },
+        left: { style: 'thin' },
+        bottom: { style: 'thin' },
+        right: { style: 'thin' }
+      };
+
+      // Si está excedido, pintar la fila de rojo (suave) o solo el texto
+      if (isExcedido) {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFFFCCCC' } // Rojo claro
+        };
+        cell.font = { color: { argb: 'FF990000' }, bold: true };
+      }
+
+      // Alinear Nº y Números al centro
+      if (colNumber === 1 || colNumber >= 5) {
+        cell.alignment = { horizontal: 'center' };
+      }
+    });
+  });
+
+  // 4. Generar y descargar el archivo
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(new Blob([buffer]), `balance-general-arrestos-${format(now, 'yyyy-MM-dd')}.xlsx`);
 };
