@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { UsuarioSchema, type Usuario } from '@bomberos-usb/shared';
@@ -28,7 +28,9 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
     formState: { errors },
     reset,
     setError,
-    clearErrors
+    clearErrors,
+    setValue,
+    control
   } = useForm<Usuario>({
     resolver: zodResolver(UsuarioSchema),
     defaultValues: {
@@ -40,6 +42,15 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
 
   const [prefix, setPrefix] = useState('0414');
   const [phoneDigits, setPhoneDigits] = useState('');
+
+  const selectedRol = useWatch({ control, name: 'rol' });
+
+  useEffect(() => {
+    if (selectedRol === 'SUPERVISOR') {
+      setValue('rango', 'N/A' as any);
+      setValue('condicion', 'REGULAR');
+    }
+  }, [selectedRol, setValue]);
 
   useEffect(() => {
     if (usuario) {
@@ -203,9 +214,11 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
               { label: 'Sargento Primero', value: 'SARGENTO_PRIMERO' },
               { label: 'Sargento Mayor', value: 'SARGENTO_MAYOR' },
               { label: 'Teniente', value: 'TENIENTE' },
-              { label: 'Capitán', value: 'CAPITAN' }
+              { label: 'Capitán', value: 'CAPITAN' },
+              { label: 'No Aplica (Inspector)', value: 'N/A' }
             ]}
             {...register('rango')}
+            disabled={selectedRol === 'SUPERVISOR'}
             error={errors.rango?.message as string}
           />
 
@@ -220,6 +233,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
               { label: 'Ex-Comandante', value: 'EX_COMANDANTE' }
             ]}
             {...register('condicion')}
+            disabled={selectedRol === 'SUPERVISOR'}
             error={errors.condicion?.message as string}
           />
         </div>

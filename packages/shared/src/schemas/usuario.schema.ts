@@ -13,7 +13,8 @@ export const RangoSchema = z.enum([
     'SARGENTO_MAYOR',
     'TENIENTE',
     'CAPITAN',
-    'DISTINGUIDO'
+    'DISTINGUIDO',
+    'N/A'
 ]);
 
 export const CondicionSchema = z.enum([
