@@ -124,7 +124,7 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
     };
 
     return (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-2 overflow-y-auto max-h-[70vh] px-1">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-2 px-1">
             
             {(isInfraccion || isAdmin || isSupervisor) && (
                 <div className="space-y-2">

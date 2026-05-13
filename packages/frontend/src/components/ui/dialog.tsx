@@ -36,9 +36,9 @@ const Dialog = ({ open, onOpenChange, title, description, children }: DialogProp
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
       <div 
         ref={dialogRef}
-        className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200"
+        className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]"
       >
-        <div className="p-6 border-b flex justify-between items-center">
+        <div className="p-6 border-b flex justify-between items-center shrink-0">
           <div>
             <h2 className="text-xl font-semibold text-slate-900">{title}</h2>
             {description && <p className="text-sm text-slate-500 mt-1">{description}</p>}
@@ -47,7 +47,7 @@ const Dialog = ({ open, onOpenChange, title, description, children }: DialogProp
             <X size={20} />
           </Button>
         </div>
-        <div className="p-6">
+        <div className="p-6 overflow-y-auto">
           {children}
         </div>
       </div>

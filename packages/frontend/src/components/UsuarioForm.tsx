@@ -19,7 +19,7 @@ interface UsuarioFormProps {
 
 const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
   const queryClient = useQueryClient();
-  const { isAdmin } = useAuth();
+  const { isAdmin, isSupervisor, userData } = useAuth();
   const isEditing = !!usuario?.uid;
 
   const {
@@ -246,11 +246,17 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
                 { label: 'Bombero', value: 'BOMBERO' },
                 { label: 'Inspector General', value: 'SUPERVISOR' },
                 { label: 'Administrador', value: 'ADMIN' },
-              ] : [
+              ] : isSupervisor ? (
+                // Si es supervisor y edita su propio perfil, ve su rol. Si crea/edita otros, solo ve Bombero.
+                usuario?.uid === userData?.uid 
+                  ? [{ label: 'Inspector General', value: 'SUPERVISOR' }]
+                  : [{ label: 'Bombero', value: 'BOMBERO' }]
+              ) : [
                 { label: 'Bombero', value: 'BOMBERO' }
               ]
             }
             {...register('rol')}
+            disabled={!isAdmin && selectedRol === 'SUPERVISOR'}
             error={errors.rol?.message as string}
           />
 
@@ -261,6 +267,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
               { label: 'Inactivo', value: 'false' },
             ]}
             {...register('activo', { setValueAs: (v) => String(v) === 'true' })}
+            disabled={!isAdmin && selectedRol === 'SUPERVISOR'}
           />
         </div>
       </div>

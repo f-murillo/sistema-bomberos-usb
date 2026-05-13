@@ -22,7 +22,7 @@ const UsuariosPage = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [usuarioAEditar, setUsuarioAEditar] = useState<Usuario | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
-  const { isAdmin, isSupervisor } = useAuth();
+  const { isAdmin, isSupervisor, userData } = useAuth();
   // Paginación
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const [currentPage, setCurrentPage] = useState(0);
@@ -251,7 +251,7 @@ const UsuariosPage = () => {
                       </td>
                       {(isAdmin || isSupervisor) && (
                         <td className="px-6 py-4 text-right">
-                          {(isAdmin || (isSupervisor && usuario.rol === 'BOMBERO')) && (
+                          {(isAdmin || (isSupervisor && (usuario.rol === 'BOMBERO' || usuario.uid === userData?.uid))) && (
                             <div className="flex justify-end gap-2">
                               <Button 
                                 variant="ghost" 
@@ -261,15 +261,17 @@ const UsuariosPage = () => {
                               >
                                 <Pencil size={16} />
                               </Button>
-                              <Button 
-                                variant="ghost" 
-                                size="icon" 
-                                className="h-8 w-8 text-slate-500 hover:text-destructive"
-                                onClick={() => handleDelete(usuario)}
-                                disabled={deleteMutation.isPending}
-                              >
-                                <Trash2 size={16} />
-                              </Button>
+                              {(isAdmin || (isSupervisor && usuario.rol === 'BOMBERO')) && (
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="h-8 w-8 text-slate-500 hover:text-destructive"
+                                  onClick={() => handleDelete(usuario)}
+                                  disabled={deleteMutation.isPending}
+                                >
+                                  <Trash2 size={16} />
+                                </Button>
+                              )}
                             </div>
                           )}
                         </td>
