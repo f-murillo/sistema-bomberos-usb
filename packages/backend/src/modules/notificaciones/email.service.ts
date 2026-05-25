@@ -1,33 +1,23 @@
-import nodemailer from 'nodemailer';
+import { google } from 'googleapis';
 import dotenv from 'dotenv';
-import dns from 'dns';
 
 dotenv.config();
 
-const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
-    auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-    },
+const OAuth2 = google.auth.OAuth2;
 
-    lookup: (
-        hostname: string,
-        _options: unknown,
-        callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void
-    ) => {
-        return dns.lookup(hostname, { family: 4 }, callback);
-    },
+// Inicializamos el cliente de autenticación de Google con tus credenciales
+const oauth2Client = new OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    "https://developers.google.com/oauthplayground" // URL requerida por Google usada en el Playground
+);
 
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 10000,
-} as any);
+oauth2Client.setCredentials({
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
+});
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const FROM_EMAIL = process.env.SMTP_FROM || '"Sistema Bomberos USB" <no-reply@example.com>';
+const FROM_EMAIL = process.env.SMTP_FROM || '"Sistema Bomberos USB" <bomberos.usb.gestion@gmail.com>';
 
 interface EmailOptions {
     to: string | string[];
@@ -37,28 +27,57 @@ interface EmailOptions {
 
 export const EmailService = {
     /**
-     * Envío genérico de correos
+     * Envío genérico de correos a través de la API de Gmail (HTTPS)
      */
     send: async ({ to, subject, html }: EmailOptions) => {
         try {
-            // Si no hay configuración, no intentamos enviar (evitar errores en dev sin config)
-            if (!process.env.SMTP_USER || process.env.SMTP_USER === 'tu-correo@gmail.com') {
+            // Validación de respaldo por si falta configuración en local (Dev)
+            if (!process.env.GOOGLE_REFRESH_TOKEN) {
                 console.log(`[EMAIL SIMULADO] Para: ${to} | Asunto: ${subject}`);
                 return;
             }
 
-            const info = await transporter.sendMail({
-                from: FROM_EMAIL,
-                to: Array.isArray(to) ? to.join(', ') : to,
-                subject,
-                html,
+            // Inicializamos el servicio de Gmail
+            const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+
+            // Formateamos los destinatarios si viene un array
+            const targetEmails = Array.isArray(to) ? to.join(', ') : to;
+
+            // El protocolo de Gmail exige codificar los asuntos UTF-8 en Base64 para evitar caracteres rotos (acentos, emojis)
+            const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+
+            // Construimos la estructura del estándar MIME de correo electrónico
+            const messageParts = [
+                `From: ${FROM_EMAIL}`,
+                `To: ${targetEmails}`,
+                'Content-Type: text/html; charset=utf-8',
+                'MIME-Version: 1.0',
+                `Subject: ${utf8Subject}`,
+                '',
+                html
+            ];
+            const message = messageParts.join('\n');
+
+            // Gmail API requiere que todo el paquete MIME viaje en un Base64 seguro para URLs (web safe)
+            const encodedMessage = Buffer.from(message)
+                .toString('base64')
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
+
+            // Envío directo vía HTTP POST (Puerto 443 - Imposible de bloquear por Render)
+            const res = await gmail.users.messages.send({
+                userId: 'me',
+                requestBody: {
+                    raw: encodedMessage,
+                },
             });
 
-            console.log(`Correo enviado: ${info.messageId}`);
-            return info;
+            console.log(`Correo enviado exitosamente vía API de Gmail ID: ${res.data.id}`);
+            return res.data;
         } catch (error) {
-            console.error("Error al enviar correo:", error);
-            // No lanzamos el error para no bloquear el flujo principal del sistema
+            console.error("Error crítico al enviar correo por API de Google:", error);
+            // Mantenemos tu filosofía de diseño: no bloqueamos el flujo principal si falla el correo
         }
     },
 
@@ -93,7 +112,7 @@ export const EmailService = {
                             </tr>
                             <tr>
                                 <td style="padding: 8px 0; color: #64748b; font-size: 14px;">Minutos:</td>
-                                <td style="padding: 8px 0; color: #ef4444; font-weight: bold;">${data.minutos} min</td>
+                                <td style="padding: 8px 0; color: #offset4444; color: #ef4444; font-weight: bold;">${data.minutos} min</td>
                             </tr>
                             <tr>
                                 <td style="padding: 8px 0; color: #64748b; font-size: 14px;">Motivo:</td>
