@@ -1,11 +1,9 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import dns from 'dns';
 
 dotenv.config();
-
-// email.service.ts
-
-// email.service.ts
+dns.setDefaultResultOrder('ipv4first'); // Render no acepta IPv6, sino el 4
 
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -15,8 +13,6 @@ const transporter = nodemailer.createTransport({
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
     },
-    // FORCE IPV4: Esto obliga a Node.js a ignorar IPv6 y soluciona el ENETUNREACH en Render
-    family: 4,
 
     // Red de seguridad contra congelamientos
     connectionTimeout: 10000,
