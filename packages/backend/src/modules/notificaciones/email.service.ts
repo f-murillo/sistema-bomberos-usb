@@ -1,9 +1,10 @@
 import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
+import dns from 'dns';
 
 dotenv.config();
 
-const configOptions = {
+const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT) || 587,
     secure: process.env.SMTP_SECURE === 'true' || process.env.SMTP_PORT === '465',
@@ -11,13 +12,19 @@ const configOptions = {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
     },
-    family: 4, // <-- Obliga al socket nativo a usar IPv4 e ignorar por completo IPv6
+
+    lookup: (
+        hostname: string,
+        _options: unknown,
+        callback: (err: NodeJS.ErrnoException | null, address: string, family: number) => void
+    ) => {
+        return dns.lookup(hostname, { family: 4 }, callback);
+    },
+
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 10000,
-};
-
-const transporter = nodemailer.createTransport(configOptions as any);
+} as any);
 
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const FROM_EMAIL = process.env.SMTP_FROM || '"Sistema Bomberos USB" <no-reply@example.com>';
