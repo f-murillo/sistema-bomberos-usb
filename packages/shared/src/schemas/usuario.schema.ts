@@ -13,6 +13,9 @@ export const RangoSchema = z.enum([
     'SARGENTO_MAYOR',
     'TENIENTE',
     'CAPITAN',
+    'MAYOR',
+    'TENIENTE_CORONEL',
+    'CORONEL',
     'DISTINGUIDO',
     'N/A'
 ]);
@@ -25,12 +28,12 @@ export const CondicionSchema = z.enum([
     'EGRESADO',
     'ESPECIAL_12H'
 ]);
- 
+
 // Esquema del usuario
 export const UsuarioSchema = z.object({
     uid: z.string().optional(), // Este sera el ID que genere el Firebase Auth
     nombre: z.string().min(2, "El nombre es demasiado corto")
-    .max(100, "El nombre es demasiado largo"),
+        .max(100, "El nombre es demasiado largo"),
     email: z.string().email("El correo electrónico debe ser válido"),
     rol: RolSchema,
     activo: z.boolean().default(true),
@@ -47,6 +50,11 @@ export const UsuarioSchema = z.object({
     condicion: CondicionSchema.default('REGULAR') // Condición del bombero
 });
 
+// Esquema para solicitar restablecimiento de contraseña (público)
+export const SolicitarResetPasswordSchema = z.object({
+    email: z.string().email("El correo electrónico debe ser válido"),
+});
+
 // Esquema para el cambio de contraseña
 export const PasswordChangeSchema = z.object({
     currentPassword: z.string().min(1, "La contraseña actual es requerida"),
@@ -56,4 +64,4 @@ export const PasswordChangeSchema = z.object({
     message: "Las contraseñas no coinciden",
     path: ["confirmPassword"],
 });
-
+

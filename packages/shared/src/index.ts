@@ -1,4 +1,4 @@
-export { RolSchema, UsuarioSchema, PasswordChangeSchema, RangoSchema, CondicionSchema } from './schemas/usuario.schema';
+export { RolSchema, UsuarioSchema, PasswordChangeSchema, SolicitarResetPasswordSchema, RangoSchema, CondicionSchema } from './schemas/usuario.schema';
 export type { Rol, Usuario, CreateUsuarioInput, Rango, Condicion } from './types/usuario.types';
 export { REGLAS_CONDICION } from './types/usuario.types';
 

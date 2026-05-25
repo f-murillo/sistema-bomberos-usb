@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { signInWithEmailAndPassword } from 'firebase/auth'
 import { auth } from '@/config/firebase'
 import { Button } from '@/components/ui/button'
@@ -71,6 +72,11 @@ const LoginPage = () => {
                   {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+            </div>
+            <div className="text-center">
+              <Link to="/solicitar-reset-password" className="text-sm text-primary hover:underline">
+                ¿Olvidaste tu contraseña?
+              </Link>
             </div>
           </CardContent>
           <CardFooter>

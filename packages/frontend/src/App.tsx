@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuth } from './context/AuthContext'
 import { format } from 'date-fns'
 import LoginPage from './pages/LoginPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
+import SolicitarResetPasswordPage from './pages/SolicitarResetPasswordPage'
 import UsuariosPage from './pages/UsuariosPage'
 import GuardiasPage from './pages/GuardiasPage'
 import AuditoriaPage from './pages/AuditoriaPage'
@@ -221,6 +223,10 @@ function App() {
             path="/login" 
             element={!user ? <LoginPage /> : <Navigate to="/" />} 
           />
+
+          {/* Rutas públicas de recuperación de contraseña */}
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/solicitar-reset-password" element={<SolicitarResetPasswordPage />} />
 
           {/* Rutas Protegidas bajo MainLayout */}
           <Route 

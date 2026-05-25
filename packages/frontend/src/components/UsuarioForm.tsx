@@ -116,12 +116,12 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
     },
     onError: (error: any) => {
       const errorMessage = error.message || '';
-      
+
       // Si el error es por email duplicado, lo mostramos directamente en el campo
       if (errorMessage.toLowerCase().includes('correo') || errorMessage.toLowerCase().includes('email')) {
-        setError('email', { 
-          type: 'manual', 
-          message: errorMessage 
+        setError('email', {
+          type: 'manual',
+          message: errorMessage
         });
       } else {
         alert(errorMessage || `Error al ${isEditing ? 'actualizar' : 'crear'} el usuario`);
@@ -143,9 +143,9 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
       <div className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="nombre">Nombre Completo</Label>
-          <Input 
-            id="nombre" 
-            placeholder="Ej: Juan Pérez" 
+          <Input
+            id="nombre"
+            placeholder="Ej: Juan Pérez"
             {...register('nombre')}
             error={errors.nombre?.message as string}
           />
@@ -154,10 +154,10 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
 
         <div className="space-y-2">
           <Label htmlFor="email" className={errors.email ? "text-destructive" : ""}>Correo Institucional</Label>
-          <Input 
-            id="email" 
-            type="email" 
-            placeholder="usuario@usb.ve" 
+          <Input
+            id="email"
+            type="email"
+            placeholder="usuario@usb.ve"
             {...register('email', {
               onChange: () => {
                 if (errors.email) clearErrors('email');
@@ -202,7 +202,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Select 
+          <Select
             label="Jerarquía / Rango"
             options={[
               { label: 'Aspirante / Alumno', value: 'ASP/ALUM' },
@@ -215,6 +215,9 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
               { label: 'Sargento Mayor', value: 'SARGENTO_MAYOR' },
               { label: 'Teniente', value: 'TENIENTE' },
               { label: 'Capitán', value: 'CAPITAN' },
+              { label: 'Mayor', value: 'MAYOR' },
+              { label: 'Teniente Coronel', value: 'TENIENTE_CORONEL' },
+              { label: 'Coronel', value: 'CORONEL' },
               { label: 'No Aplica (Inspector)', value: 'N/A' }
             ]}
             {...register('rango')}
@@ -222,7 +225,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
             error={errors.rango?.message as string}
           />
 
-          <Select 
+          <Select
             label="Condición de Servicio"
             options={[
               { label: 'Regular', value: 'REGULAR' },
@@ -239,7 +242,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Select 
+          <Select
             label="Rol del Sistema"
             options={
               isAdmin ? [
@@ -248,7 +251,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
                 { label: 'Administrador', value: 'ADMIN' },
               ] : isSupervisor ? (
                 // Si es supervisor y edita su propio perfil, ve su rol. Si crea/edita otros, solo ve Bombero.
-                usuario?.uid === userData?.uid 
+                usuario?.uid === userData?.uid
                   ? [{ label: 'Inspector General', value: 'SUPERVISOR' }]
                   : [{ label: 'Bombero', value: 'BOMBERO' }]
               ) : [
@@ -260,7 +263,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
             error={errors.rol?.message as string}
           />
 
-          <Select 
+          <Select
             label="Estado Inicial"
             options={[
               { label: 'Activo', value: 'true' },

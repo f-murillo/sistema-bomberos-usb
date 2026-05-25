@@ -1,9 +1,10 @@
 import { Request, Response } from "express";
 import { ZodError } from "zod";
-import { UsuarioSchema, PasswordChangeSchema } from "@bomberos-usb/shared";
+import { UsuarioSchema, PasswordChangeSchema, SolicitarResetPasswordSchema } from "@bomberos-usb/shared";
 import { db, auth, admin } from "../../config/firebase";
 import { registrarAuditoria } from "../../utils/auditoria";
 import { NotificacionService } from "../notificaciones/notificaciones.service";
+import { EmailService } from "../notificaciones/email.service";
 
 // CRUD para los usuarios
 // Crear de un usuario (C)
@@ -59,15 +60,15 @@ export const crearUsuario = async (req: Request, res: Response) => {
         }
 
         // Si el error es de parte de Zod, reportamos ese error
-        if(error instanceof ZodError){
+        if (error instanceof ZodError) {
             return res.status(400).json({
                 errors: error.flatten()
             });
         }
 
         // Si el error es de tipo Error (algun error del servidor)
-        if(error instanceof Error){
-            console.error(`Error al crear usuario: ${error.message}`);        
+        if (error instanceof Error) {
+            console.error(`Error al crear usuario: ${error.message}`);
             return res.status(500).json({
                 message: "Error interno del servidor al crear usuario"
             });
@@ -147,7 +148,7 @@ export const actualizarUsuario = async (req: Request, res: Response) => {
 
         // Verificamos si el usuario existe antes de intentar actualizar
         const doc = await userRef.get();
-        if(!doc.exists){
+        if (!doc.exists) {
             return res.status(404).json({
                 message: "Error: usuario no encontrado"
             });
@@ -157,11 +158,30 @@ export const actualizarUsuario = async (req: Request, res: Response) => {
         const targetUserData = doc.data() as any;
 
         if (requestingUser.rol === 'SUPERVISOR') {
-            if (targetUserData.rol !== 'BOMBERO' || (validatedData.rol && validatedData.rol !== 'BOMBERO')) {
-                return res.status(403).json({ message: "Los inspectores solo pueden editar usuarios de tipo Bombero." });
+            const isEditingSelf = requestingUser.uid === id;
+
+            // Un supervisor solo puede editar otros usuarios de tipo bombero
+            if (!isEditingSelf) {
+                if (targetUserData.rol !== 'BOMBERO' || (validatedData.rol && validatedData.rol !== 'BOMBERO')) {
+                    return res.status(403).json({ message: "Los inspectores solo pueden editar usuarios de tipo Bombero." });
+                }
+            }
+
+            // Un supervisor no puede cambiar su propio rol
+            if (isEditingSelf && validatedData.rol && validatedData.rol !== 'SUPERVISOR') {
+                return res.status(403).json({
+                    message: "Los inspectores no pueden cambiar su propio rol."
+                });
+            }
+
+            // Un supervisor no puede desactivarse a sí mismo
+            if (isEditingSelf && validatedData.activo === false) {
+                return res.status(403).json({
+                    message: "Los inspectores no pueden desactivarse a sí mismos."
+                });
             }
         }
-        
+
         // 1. Sincronizamos con Firebase Auth si se modifican campos relevantes
         if (validatedData.nombre !== undefined || validatedData.activo !== undefined || validatedData.rol !== undefined || validatedData.email !== undefined) {
             try {
@@ -172,7 +192,7 @@ export const actualizarUsuario = async (req: Request, res: Response) => {
                     const emailCheck = await db.collection("usuarios")
                         .where("email", "==", validatedData.email)
                         .get();
-                    
+
                     const otherUser = emailCheck.docs.find(doc => doc.id !== id);
                     if (otherUser) {
                         return res.status(400).json({
@@ -204,7 +224,7 @@ export const actualizarUsuario = async (req: Request, res: Response) => {
                         message: "Error: El correo ya está en uso por otro usuario"
                     });
                 }
-                
+
                 // Si el usuario no existe en Auth (pero sí en Firestore), lo ignoramos para seguir con Firestore
                 if (authError.code !== 'auth/user-not-found') {
                     throw authError;
@@ -217,7 +237,7 @@ export const actualizarUsuario = async (req: Request, res: Response) => {
             ...validatedData,
             fechaActualizacion: new Date()
         });
-        
+
         // Guardamos auditoría
         const adminId = (req as any).user?.uid || "SISTEMA";
         await registrarAuditoria('ACTUALIZAR_USUARIO', 'usuarios', id, adminId, { fields: Object.keys(validatedData) });
@@ -236,13 +256,13 @@ export const actualizarUsuario = async (req: Request, res: Response) => {
 
     } catch (error: any) {
         // Manejo de errores de validación de Zod
-        if(error instanceof ZodError){
+        if (error instanceof ZodError) {
             return res.status(400).json({
                 errors: error.flatten()
             });
         }
 
-        if(error instanceof Error){
+        if (error instanceof Error) {
             console.error(`Error al actualizar usuario: ${error.message}`);
             return res.status(500).json({
                 message: "Error interno del servidor al actualizar usuario"
@@ -256,14 +276,14 @@ export const actualizarUsuario = async (req: Request, res: Response) => {
 };
 
 // Eliminar usuario (D)
-export const eliminarUsuario = async(req: Request, res: Response) =>{
+export const eliminarUsuario = async (req: Request, res: Response) => {
     try {
         const { id } = req.params; // El ID es el UID de Firebase
         const userRef = db.collection("usuarios").doc(id);
-    
+
         // 1. Verificamos si el usuario existe en Firestore
         const doc = await userRef.get();
-        if(!doc.exists){
+        if (!doc.exists) {
             return res.status(404).json({
                 message: "Error: usuario no encontrado"
             });
@@ -288,7 +308,7 @@ export const eliminarUsuario = async(req: Request, res: Response) =>{
 
         // 3. Eliminar de Firestore
         await userRef.delete();
-        
+
         const adminId = (req as any).user?.uid || "SISTEMA";
         await registrarAuditoria('ELIMINAR_USUARIO', 'usuarios', id, adminId);
 
@@ -297,17 +317,90 @@ export const eliminarUsuario = async(req: Request, res: Response) =>{
         });
 
     } catch (error: unknown) {
-        if(error instanceof Error){
+        if (error instanceof Error) {
             console.error(`Error al eliminar usuario: ${error.message}`);
             return res.status(500).json({
                 message: "Error interno del servidor al eliminar usuario"
             });
-        
+
         }
         // En caso de un error inesperado
         res.status(500).json({
             message: "Ocurrió un error inesperado al eliminar usuario"
         });
+    }
+};
+
+// Restablecimiento de contraseña por correo electrónico — Endpoint público
+export const solicitarResetPassword = async (req: Request, res: Response) => {
+    try {
+        const { email } = SolicitarResetPasswordSchema.parse(req.body);
+
+        // Buscar al usuario en Firestore por su correo
+        const snapshot = await db.collection("usuarios").where("email", "==", email).limit(1).get();
+
+        if (snapshot.empty) {
+            // Respondemos 200 genérico para no revelar qué correos existen
+            return res.status(200).json({
+                message: "Si el correo existe, recibirás un enlace de recuperación en tu bandeja de entrada"
+            });
+        }
+
+        const userDoc = snapshot.docs[0];
+        const userId = userDoc.id;
+
+        // Configurar el enlace de restablecimiento que Firebase redirigirá al frontend
+        const actionCodeSettings = {
+            url: "https://sistema-bomberos-usb.web.app/reset-password",
+            handleCodeInApp: true
+        };
+
+        // Generar el enlace seguro con Firebase Admin SDK
+        const resetLink = await auth.generatePasswordResetLink(email, actionCodeSettings);
+
+        // Construir el HTML del correo con el botón de restablecimiento
+        const html = `
+            <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                <div style="background-color: #0f172a; color: white; padding: 24px; text-align: center;">
+                    <h1 style="margin: 0; font-size: 20px;">🔐 Restablece tu contraseña</h1>
+                </div>
+                <div style="padding: 24px; color: #334155;">
+                    <p>Recibiste este correo porque solicitaste restablecer la contraseña de tu cuenta en <strong>Sistema Bomberos USB</strong>.</p>
+                    <p>Haz clic en el botón de abajo para crear una nueva contraseña:</p>
+                    <div style="text-align: center; margin: 32px 0;">
+                        <a href="${resetLink}" style="background-color: #2563eb; color: white; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 16px; display: inline-block;">
+                            Restablecer contraseña
+                        </a>
+                    </div>
+                    <p style="font-size: 14px; color: #64748b;">Si no solicitaste este cambio, puedes ignorar este correo de forma segura.</p>
+                    <p style="font-size: 14px; color: #64748b;">El enlace expirará en 1 hora por razones de seguridad.</p>
+                    <p style="font-size: 12px; color: #94a3b8; margin-top: 40px; text-align: center; border-top: 1px solid #e2e8f0; padding-top: 16px;">
+                        Este es un mensaje automático generado por el Sistema de Gestión de Bomberos USB. No responda a este correo.
+                    </p>
+                </div>
+            </div>
+        `;
+
+        // Enviar el correo usando el servicio de Email ya configurado
+        await EmailService.send({
+            to: email,
+            subject: "🔐 Restablece tu contraseña - Bomberos USB",
+            html
+        });
+
+        // Registrar la solicitud en auditoría
+        await registrarAuditoria('SOLICITAR_RESET_PASSWORD', 'usuarios', userId, "INVITADO", { email });
+
+        res.status(200).json({
+            message: "Si el correo existe, recibirás un enlace de recuperación en tu bandeja de entrada"
+        });
+
+    } catch (error: any) {
+        if (error instanceof ZodError) {
+            return res.status(400).json({ errors: error.flatten() });
+        }
+        console.error("Error al solicitar restablecimiento de contraseña:", error);
+        res.status(500).json({ message: "Error interno del servidor" });
     }
 };
 
@@ -363,4 +456,4 @@ export const cambiarPassword = async (req: Request, res: Response) => {
         console.error("Error al cambiar contraseña:", error);
         res.status(500).json({ message: "Error interno del servidor" });
     }
-};
+};
