@@ -3,6 +3,10 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+// email.service.ts
+
+// email.service.ts
+
 const transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT) || 587,
@@ -11,9 +15,11 @@ const transporter = nodemailer.createTransport({
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
     },
-    // si el servidor SMTP bloquea la conexión, 
-    // tira un error a los 10 segundos en vez de congelar el backend
-    connectionTimeout: 10000, // 10 segundos
+    // FORCE IPV4: Esto obliga a Node.js a ignorar IPv6 y soluciona el ENETUNREACH en Render
+    family: 4,
+
+    // Red de seguridad contra congelamientos
+    connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 10000,
 });
