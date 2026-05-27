@@ -49,7 +49,7 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
             ...initialData,
             // Si el prop 'tipo' es PAGO pero initialData era una INFRACCION, 
             // estamos en el flujo de "Pagar arresto específico"
-            tipo: tipo, 
+            tipo: tipo,
             estado: tipo === 'PAGO' ? 'PENDIENTE_VALIDACION' : initialData.estado,
             parentArrestoId: tipo === 'PAGO' ? (initialData.id || initialData.parentArrestoId) : undefined,
             fecha: initialData.fecha ? new Date(initialData.fecha).toISOString().split('T')[0] : '',
@@ -113,7 +113,7 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
     const onSubmit = (data: Arresto) => {
         const finalData = { ...data };
         if (!isEditing) delete finalData.id;
-        
+
         if (data.motivo === 'Otro' && otroMotivo) {
             finalData.motivo = otroMotivo;
         }
@@ -125,7 +125,7 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
 
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-2 px-1">
-            
+
             {(isInfraccion || isAdmin || isSupervisor) && (
                 <div className="space-y-2">
                     <Label htmlFor="bomberoId">
@@ -140,7 +140,7 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
                             disabled={isEditing}
                         >
                             <option value="">Seleccione un bombero...</option>
-                            {bomberos?.filter(u => u.uid !== userData?.uid && u.rol !== 'ADMIN' && u.rol !== 'SUPERVISOR').map(u => (
+                            {bomberos?.filter(u => u.uid !== userData?.uid && u.rol !== 'ADMIN' && u.rol !== 'SUPERVISOR' && u.rol !== 'CUENTA_ADMINISTRATIVA').map(u => (
                                 <option key={u.uid} value={u.uid}>{u.nombre} ({u.condicion || 'REGULAR'})</option>
                             ))}
                             {isEditing && initialData?.bomberoNombre && (
@@ -206,9 +206,9 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
                                     </select>
                                     {selectedTurno === 'OTRO' && (
                                         <div className="pt-2">
-                                            <Input 
-                                                id="otroTurno" 
-                                                placeholder="Especifique el turno..." 
+                                            <Input
+                                                id="otroTurno"
+                                                placeholder="Especifique el turno..."
                                                 value={otroTurno}
                                                 onChange={(e) => setOtroTurno(e.target.value)}
                                             />
@@ -244,9 +244,9 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
                             </select>
                             {selectedMotivo === 'Otro' && (
                                 <div className="pt-2">
-                                    <Input 
-                                        id="otroMotivo" 
-                                        placeholder="Especifique el motivo..." 
+                                    <Input
+                                        id="otroMotivo"
+                                        placeholder="Especifique el motivo..."
                                         value={otroMotivo}
                                         onChange={(e) => setOtroMotivo(e.target.value)}
                                     />
@@ -269,9 +269,9 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
                             </select>
                             {selectedTurno === 'OTRO' && (
                                 <div className="pt-2">
-                                    <Input 
-                                        id="otroTurno" 
-                                        placeholder="Especifique el turno..." 
+                                    <Input
+                                        id="otroTurno"
+                                        placeholder="Especifique el turno..."
                                         value={otroTurno}
                                         onChange={(e) => setOtroTurno(e.target.value)}
                                     />

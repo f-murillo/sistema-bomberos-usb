@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // Esquema de los roles de los usuarios
-export const RolSchema = z.enum(['ADMIN', 'SUPERVISOR', 'BOMBERO']);
+export const RolSchema = z.enum(['ADMIN', 'SUPERVISOR', 'CUENTA_ADMINISTRATIVA', 'BOMBERO']);
 
 export const RangoSchema = z.enum([
     'ASP/ALUM',

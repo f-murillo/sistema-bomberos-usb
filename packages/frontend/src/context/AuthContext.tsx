@@ -11,6 +11,7 @@ interface AuthContextType {
   isAdmin: boolean;
   isSupervisor: boolean;
   isBombero: boolean;
+  isCuentaAdministrativa: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({ 
@@ -19,7 +20,8 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   isAdmin: false,
   isSupervisor: false,
-  isBombero: false
+  isBombero: false,
+  isCuentaAdministrativa: false
 });
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
@@ -55,7 +57,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     loading,
     isAdmin: userData?.rol === 'ADMIN',
     isSupervisor: userData?.rol === 'SUPERVISOR',
-    isBombero: userData?.rol === 'BOMBERO'
+    isBombero: userData?.rol === 'BOMBERO',
+    isCuentaAdministrativa: userData?.rol === 'CUENTA_ADMINISTRATIVA'
   };
 
   return (

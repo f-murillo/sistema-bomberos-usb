@@ -19,7 +19,7 @@ interface UsuarioFormProps {
 
 const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
   const queryClient = useQueryClient();
-  const { isAdmin, isSupervisor, userData } = useAuth();
+  const { isAdmin, isSupervisor, isCuentaAdministrativa, userData } = useAuth();
   const isEditing = !!usuario?.uid;
 
   const {
@@ -46,7 +46,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
   const selectedRol = useWatch({ control, name: 'rol' });
 
   useEffect(() => {
-    if (selectedRol === 'SUPERVISOR') {
+    if (selectedRol === 'SUPERVISOR' || selectedRol === 'CUENTA_ADMINISTRATIVA') {
       setValue('rango', 'N/A' as any);
       setValue('condicion', 'REGULAR');
     }
@@ -221,7 +221,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
               { label: 'No Aplica (Inspector)', value: 'N/A' }
             ]}
             {...register('rango')}
-            disabled={selectedRol === 'SUPERVISOR'}
+            disabled={selectedRol === 'SUPERVISOR' || selectedRol === 'CUENTA_ADMINISTRATIVA'}
             error={errors.rango?.message as string}
           />
 
@@ -236,7 +236,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
               { label: 'Ex-Comandante', value: 'EX_COMANDANTE' }
             ]}
             {...register('condicion')}
-            disabled={selectedRol === 'SUPERVISOR'}
+            disabled={selectedRol === 'SUPERVISOR' || selectedRol === 'CUENTA_ADMINISTRATIVA'}
             error={errors.condicion?.message as string}
           />
         </div>
@@ -247,19 +247,26 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
             options={
               isAdmin ? [
                 { label: 'Bombero', value: 'BOMBERO' },
+                { label: 'Cuenta Administrativa', value: 'CUENTA_ADMINISTRATIVA' },
                 { label: 'Inspector General', value: 'SUPERVISOR' },
                 { label: 'Administrador', value: 'ADMIN' },
               ] : isSupervisor ? (
-                // Si es supervisor y edita su propio perfil, ve su rol. Si crea/edita otros, solo ve Bombero.
                 usuario?.uid === userData?.uid
                   ? [{ label: 'Inspector General', value: 'SUPERVISOR' }]
+                  : [
+                      { label: 'Bombero', value: 'BOMBERO' },
+                      { label: 'Cuenta Administrativa', value: 'CUENTA_ADMINISTRATIVA' }
+                    ]
+              ) : isCuentaAdministrativa ? (
+                usuario?.uid === userData?.uid
+                  ? [{ label: 'Cuenta Administrativa', value: 'CUENTA_ADMINISTRATIVA' }]
                   : [{ label: 'Bombero', value: 'BOMBERO' }]
               ) : [
                 { label: 'Bombero', value: 'BOMBERO' }
               ]
             }
             {...register('rol')}
-            disabled={!isAdmin && selectedRol === 'SUPERVISOR'}
+            disabled={!isAdmin && (selectedRol === 'SUPERVISOR' || selectedRol === 'CUENTA_ADMINISTRATIVA')}
             error={errors.rol?.message as string}
           />
 
@@ -270,7 +277,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
               { label: 'Inactivo', value: 'false' },
             ]}
             {...register('activo', { setValueAs: (v) => String(v) === 'true' })}
-            disabled={!isAdmin && selectedRol === 'SUPERVISOR'}
+            disabled={!isAdmin && (selectedRol === 'SUPERVISOR' || selectedRol === 'CUENTA_ADMINISTRATIVA')}
           />
         </div>
       </div>

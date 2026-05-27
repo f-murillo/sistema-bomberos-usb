@@ -22,7 +22,7 @@ const UsuariosPage = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [usuarioAEditar, setUsuarioAEditar] = useState<Usuario | undefined>(undefined);
   const [searchTerm, setSearchTerm] = useState('');
-  const { isAdmin, isSupervisor, userData } = useAuth();
+  const { isAdmin, isSupervisor, isCuentaAdministrativa, userData } = useAuth();
   // Paginación
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const [currentPage, setCurrentPage] = useState(0);
@@ -91,6 +91,7 @@ const UsuariosPage = () => {
     switch (rol) {
       case 'ADMIN': return <Badge variant="destructive">Administrador</Badge>;
       case 'SUPERVISOR': return <Badge variant="default">Inspector General</Badge>;
+      case 'CUENTA_ADMINISTRATIVA': return <Badge variant="default">Cuenta Administrativa</Badge>;
       case 'BOMBERO': return <Badge variant="secondary">Bombero</Badge>;
       default: return <Badge variant="outline">{rol}</Badge>;
     }
@@ -102,8 +103,8 @@ const UsuariosPage = () => {
     (u.email?.toLowerCase() || '').includes(searchTerm.toLowerCase())
   );
 
-  const title = (isAdmin || isSupervisor) ? "Gestión de Usuarios" : "Directorio de Personal";
-  const subtitle = (isAdmin || isSupervisor) 
+  const title = (isAdmin || isSupervisor || isCuentaAdministrativa) ? "Gestión de Usuarios" : "Directorio de Personal";
+  const subtitle = (isAdmin || isSupervisor || isCuentaAdministrativa) 
     ? "Administra los permisos y roles del personal del cuerpo de bomberos."
     : "Consulta el contacto del personal del sistema.";
 
@@ -117,7 +118,7 @@ const UsuariosPage = () => {
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight">{title}</h1>
           <p className="text-sm sm:text-base text-slate-500">{subtitle}</p>
         </div>
-        {(isAdmin || isSupervisor) && (
+        {(isAdmin || isSupervisor || isCuentaAdministrativa) && (
           <Button className="w-full sm:w-auto flex items-center justify-center gap-2 shadow-sm" onClick={handleCreate}>
             <UserPlus size={18} />
             Registrar Usuario
@@ -187,31 +188,31 @@ const UsuariosPage = () => {
                   <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider">Contacto</th>
                   <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider">Rol</th>
                   <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider">Estado</th>
-                  {(isAdmin || isSupervisor) && <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider text-right">Acciones</th>}
+                  {(isAdmin || isSupervisor || isCuentaAdministrativa) && <th className="px-6 py-4 text-sm font-semibold text-slate-700 uppercase tracking-wider text-right">Acciones</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {isLoading ? (
-                  [...Array(3)].map((_, i) => (
-                    <tr key={i} className="animate-pulse">
-                      <td colSpan={(isAdmin || isSupervisor) ? 5 : 4} className="px-6 py-8">
-                        <div className="h-4 bg-slate-100 rounded w-full"></div>
+                  {isLoading ? (
+                    [...Array(3)].map((_, i) => (
+                      <tr key={i} className="animate-pulse">
+                        <td colSpan={(isAdmin || isSupervisor || isCuentaAdministrativa) ? 5 : 4} className="px-6 py-8">
+                          <div className="h-4 bg-slate-100 rounded w-full"></div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : isError ? (
+                    <tr>
+                      <td colSpan={(isAdmin || isSupervisor || isCuentaAdministrativa) ? 5 : 4} className="px-6 py-12 text-center text-destructive font-medium bg-destructive/5">
+                        Error al cargar los usuarios.
                       </td>
                     </tr>
-                  ))
-                ) : isError ? (
-                  <tr>
-                    <td colSpan={(isAdmin || isSupervisor) ? 5 : 4} className="px-6 py-12 text-center text-destructive font-medium bg-destructive/5">
-                      Error al cargar los usuarios.
-                    </td>
-                  </tr>
-                ) : displayedUsers?.length === 0 ? (
-                  <tr>
-                    <td colSpan={(isAdmin || isSupervisor) ? 5 : 4} className="px-6 py-12 text-center text-slate-500 font-medium">
-                      No se encontraron resultados en esta categoría.
-                    </td>
-                  </tr>
-                ) : (
+                  ) : displayedUsers?.length === 0 ? (
+                    <tr>
+                      <td colSpan={(isAdmin || isSupervisor || isCuentaAdministrativa) ? 5 : 4} className="px-6 py-12 text-center text-slate-500 font-medium">
+                        No se encontraron resultados en esta categoría.
+                      </td>
+                    </tr>
+                  ) : (
                   displayedUsers?.map((usuario) => (
                     <tr key={usuario.uid || usuario.email} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4">
@@ -249,9 +250,12 @@ const UsuariosPage = () => {
                           {usuario.activo ? 'Activo' : 'Inactivo'}
                         </Badge>
                       </td>
-                      {(isAdmin || isSupervisor) && (
+                      {(isAdmin || isSupervisor || isCuentaAdministrativa) && (
                         <td className="px-6 py-4 text-right">
-                          {(isAdmin || (isSupervisor && (usuario.rol === 'BOMBERO' || usuario.uid === userData?.uid))) && (
+                          {(isAdmin || 
+                            (isSupervisor && (usuario.rol === 'BOMBERO' || usuario.rol === 'CUENTA_ADMINISTRATIVA' || usuario.uid === userData?.uid)) ||
+                            (isCuentaAdministrativa && (usuario.rol === 'BOMBERO' || usuario.uid === userData?.uid))
+                          ) && (
                             <div className="flex justify-end gap-2">
                               <Button 
                                 variant="ghost" 
@@ -261,7 +265,10 @@ const UsuariosPage = () => {
                               >
                                 <Pencil size={16} />
                               </Button>
-                              {(isAdmin || (isSupervisor && usuario.rol === 'BOMBERO')) && (
+                              {(isAdmin || 
+                                (isSupervisor && (usuario.rol === 'BOMBERO' || usuario.rol === 'CUENTA_ADMINISTRATIVA')) ||
+                                (isCuentaAdministrativa && usuario.rol === 'BOMBERO')
+                              ) && (
                                 <Button 
                                   variant="ghost" 
                                   size="icon" 

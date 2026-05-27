@@ -28,7 +28,7 @@ interface MainLayoutProps {
 }
 
 const MainLayout = ({ children }: MainLayoutProps) => {
-  const { userData, isAdmin, isSupervisor } = useAuth();
+  const { userData, isAdmin, isSupervisor, isCuentaAdministrativa } = useAuth();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -47,9 +47,9 @@ const MainLayout = ({ children }: MainLayoutProps) => {
 
   const menuItems = [
     { label: 'Inicio', icon: <LayoutDashboard size={20} />, path: '/', show: true },
-    { label: 'Mis Guardias', icon: <Calendar size={20} />, path: '/guardias', show: !isAdmin },
+    { label: 'Mis Guardias', icon: <Calendar size={20} />, path: '/guardias', show: !isAdmin && !isCuentaAdministrativa },
     { label: 'Horas / Arrestos', icon: <ShieldAlert size={20} />, path: '/arrestos', show: !isAdmin },
-    { label: isAdmin || isSupervisor ? 'Directorio / Gestión' : 'Directorio', icon: <Users size={20} />, path: '/usuarios', show: true },
+    { label: isAdmin || isSupervisor || isCuentaAdministrativa ? 'Directorio / Gestión' : 'Directorio', icon: <Users size={20} />, path: '/usuarios', show: true },
     { label: 'Auditoría', icon: <History size={20} />, path: '/auditoria', show: isAdmin },
   ];
 
@@ -146,7 +146,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
               <div className="overflow-hidden flex-1">
                 <p className="text-sm font-semibold truncate text-slate-900">{userData?.nombre || 'Usuario'}</p>
                 <p className="text-[10px] text-slate-500 uppercase font-bold">
-                  {isAdmin ? 'Administrador' : isSupervisor ? 'Inspector General' : 'Bombero'}
+                  {isAdmin ? 'Administrador' : isSupervisor ? 'Inspector General' : isCuentaAdministrativa ? 'Cuenta Administrativa' : 'Bombero'}
                 </p>
               </div>
             </button>

@@ -14,8 +14,12 @@ export const crearUsuario = async (req: Request, res: Response) => {
         const validatedData = UsuarioSchema.parse(req.body);
         const requestingUser = (req as any).user;
 
-        if (requestingUser.rol === 'SUPERVISOR' && validatedData.rol && validatedData.rol !== 'BOMBERO') {
-            return res.status(403).json({ message: "Los inspectores solo pueden crear usuarios de tipo Bombero." });
+        if (requestingUser.rol === 'SUPERVISOR' && validatedData.rol && validatedData.rol !== 'BOMBERO' && validatedData.rol !== 'CUENTA_ADMINISTRATIVA') {
+            return res.status(403).json({ message: "Los inspectores solo pueden crear usuarios de tipo Bombero o Cuenta Administrativa." });
+        }
+
+        if (requestingUser.rol === 'CUENTA_ADMINISTRATIVA' && validatedData.rol && validatedData.rol !== 'BOMBERO') {
+            return res.status(403).json({ message: "Las cuentas administrativas solo pueden crear usuarios de tipo Bombero." });
         }
 
         // 1. Crear el usuario en Firebase Auth (esto permite que haga login)
@@ -160,25 +164,50 @@ export const actualizarUsuario = async (req: Request, res: Response) => {
         if (requestingUser.rol === 'SUPERVISOR') {
             const isEditingSelf = requestingUser.uid === id;
 
-            // Un supervisor solo puede editar otros usuarios de tipo bombero
             if (!isEditingSelf) {
-                if (targetUserData.rol !== 'BOMBERO' || (validatedData.rol && validatedData.rol !== 'BOMBERO')) {
-                    return res.status(403).json({ message: "Los inspectores solo pueden editar usuarios de tipo Bombero." });
+                const canEditRoles = ['BOMBERO', 'CUENTA_ADMINISTRATIVA'];
+                if (!canEditRoles.includes(targetUserData.rol) || (validatedData.rol && !canEditRoles.includes(validatedData.rol))) {
+                    return res.status(403).json({ message: "Los inspectores solo pueden editar usuarios de tipo Bombero o Cuenta Administrativa." });
                 }
             }
 
-            // Un supervisor no puede cambiar su propio rol
             if (isEditingSelf && validatedData.rol && validatedData.rol !== 'SUPERVISOR') {
                 return res.status(403).json({
                     message: "Los inspectores no pueden cambiar su propio rol."
                 });
             }
 
-            // Un supervisor no puede desactivarse a sí mismo
             if (isEditingSelf && validatedData.activo === false) {
                 return res.status(403).json({
                     message: "Los inspectores no pueden desactivarse a sí mismos."
                 });
+            }
+        }
+
+        if (requestingUser.rol === 'CUENTA_ADMINISTRATIVA') {
+            const isEditingSelf = requestingUser.uid === id;
+
+            if (!isEditingSelf) {
+                if (targetUserData.rol !== 'BOMBERO' || (validatedData.rol && validatedData.rol !== 'BOMBERO')) {
+                    return res.status(403).json({ message: "Las cuentas administrativas solo pueden editar usuarios de tipo Bombero." });
+                }
+            }
+
+            if (isEditingSelf) {
+                if (validatedData.rol) {
+                    return res.status(403).json({
+                        message: "Las cuentas administrativas no pueden cambiar su propio rol."
+                    });
+                }
+
+                if (validatedData.activo !== undefined) {
+                    return res.status(403).json({
+                        message: "Las cuentas administrativas no pueden cambiar su propio estado."
+                    });
+                }
+
+                delete validatedData.rango;
+                delete validatedData.condicion;
             }
         }
 
@@ -292,8 +321,12 @@ export const eliminarUsuario = async (req: Request, res: Response) => {
         const requestingUser = (req as any).user;
         const targetUserData = doc.data() as any;
 
-        if (requestingUser.rol === 'SUPERVISOR' && targetUserData.rol !== 'BOMBERO') {
-            return res.status(403).json({ message: "Los inspectores solo pueden eliminar usuarios de tipo Bombero." });
+        if (requestingUser.rol === 'SUPERVISOR' && targetUserData.rol !== 'BOMBERO' && targetUserData.rol !== 'CUENTA_ADMINISTRATIVA') {
+            return res.status(403).json({ message: "Los inspectores solo pueden eliminar usuarios de tipo Bombero o Cuenta Administrativa." });
+        }
+
+        if (requestingUser.rol === 'CUENTA_ADMINISTRATIVA' && targetUserData.rol !== 'BOMBERO') {
+            return res.status(403).json({ message: "Las cuentas administrativas solo pueden eliminar usuarios de tipo Bombero." });
         }
 
         // 2. Eliminar de Firebase Auth (esto impide que vuelva a iniciar sesión)

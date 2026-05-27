@@ -29,7 +29,7 @@ const queryClient = new QueryClient({
 
 // Un componente para el Inicio / Dashboard
 const Dashboard = () => {
-  const { userData, isAdmin, isSupervisor } = useAuth();
+  const { userData, isAdmin, isSupervisor, isCuentaAdministrativa } = useAuth();
   const navigate = useNavigate();
 
   // Obtenemos las guardias para mostrar información dinámica
@@ -78,7 +78,7 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
         
         {/* VISTA PARA BOMBEROS: Su estado personal */}
-        {!isAdmin && !isSupervisor && (
+        {!isAdmin && !isSupervisor && !isCuentaAdministrativa && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between min-h-[160px]">
             <div>
               <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
@@ -112,10 +112,10 @@ const Dashboard = () => {
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col justify-between min-h-[160px]">
             <div>
               <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                <ShieldAlert className={isSupervisor ? "text-primary" : "text-amber-500"} size={20} />
-                {isSupervisor ? "Gestión de Arrestos" : "Horas de Arresto"}
+                <ShieldAlert className={isSupervisor || isCuentaAdministrativa ? "text-primary" : "text-amber-500"} size={20} />
+                {isSupervisor || isCuentaAdministrativa ? "Gestión de Arrestos" : "Horas de Arresto"}
               </h3>
-              {isSupervisor ? (
+              {isSupervisor || isCuentaAdministrativa ? (
                 <>
                   <p className="text-2xl font-bold text-slate-900">Panel de Control</p>
                   <p className="text-sm text-slate-500 mt-1">
@@ -139,11 +139,11 @@ const Dashboard = () => {
               variant="link" 
               className={cn(
                 "p-0 h-auto mt-4 font-bold flex items-center gap-1 w-fit hover:no-underline",
-                isSupervisor ? "text-primary" : "text-amber-600"
+                isSupervisor || isCuentaAdministrativa ? "text-primary" : "text-amber-600"
               )} 
               onClick={() => navigate('/arrestos')}
             >
-              {isSupervisor ? "Ir a Gestión Global" : "Ver mi historial"} <ArrowRight size={16} />
+              {isSupervisor || isCuentaAdministrativa ? "Ir a Gestión Global" : "Ver mi historial"} <ArrowRight size={16} />
             </Button>
           </div>
         )}

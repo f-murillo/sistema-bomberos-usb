@@ -30,7 +30,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const ArrestosPage = () => {
-  const { userData, isSupervisor, isAdmin } = useAuth();
+  const { userData, isSupervisor, isAdmin, isCuentaAdministrativa } = useAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -42,7 +42,7 @@ const ArrestosPage = () => {
   
   if (isAdmin) return null;
   const [activeTab, setActiveTab] = useState<'recibidos' | 'asignados' | 'global' | 'balance'>(
-    isSupervisor ? 'asignados' : 'recibidos'
+    isCuentaAdministrativa ? 'balance' : isSupervisor ? 'asignados' : 'recibidos'
   );
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -238,22 +238,24 @@ const ArrestosPage = () => {
         </div>
         
         <div className="flex items-center gap-2">
-
-
-          <Button onClick={() => { setSelectedArresto(null); setFormType('INFRACCION'); setIsFormOpen(true); }} variant="default">
-            <Plus size={20} className="mr-2" />
-            Asignar Arresto
-          </Button>
+          {!isCuentaAdministrativa && (
+            <Button onClick={() => { setSelectedArresto(null); setFormType('INFRACCION'); setIsFormOpen(true); }} variant="default">
+              <Plus size={20} className="mr-2" />
+              Asignar Arresto
+            </Button>
+          )}
           
-          <Button onClick={() => { setSelectedArresto(null); setFormType('PAGO'); setIsFormOpen(true); }}>
-            <ArrowDownCircle size={20} className="mr-2" />
-            Reportar Pago
-          </Button>
+          {!isSupervisor && !isCuentaAdministrativa && (
+            <Button onClick={() => { setSelectedArresto(null); setFormType('PAGO'); setIsFormOpen(true); }}>
+              <ArrowDownCircle size={20} className="mr-2" />
+              Reportar Pago
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Balance Card */}
-      {!isAdmin && !isSupervisor && (
+      {!isAdmin && !isSupervisor && !isCuentaAdministrativa && (
         <Card className={cn(
             "overflow-hidden relative border",
             isExcedido ? "bg-red-50 border-red-200" : "bg-primary/5 border-primary/10"
@@ -289,27 +291,33 @@ const ArrestosPage = () => {
       )}
 
       {/* Tabs de Listado */}
-      <Tabs defaultValue={isAdmin || isSupervisor ? "asignados" : "recibidos"} onValueChange={(v) => setActiveTab(v as any)}>
+      <Tabs defaultValue={isCuentaAdministrativa ? "balance" : isAdmin || isSupervisor ? "asignados" : "recibidos"} onValueChange={(v) => setActiveTab(v as any)}>
         <TabsList className={cn(
           "grid w-full mb-4",
-          isAdmin || isSupervisor 
+          isCuentaAdministrativa
+            ? "grid-cols-1 md:w-auto md:inline-grid md:grid-cols-1"
+            : isAdmin || isSupervisor 
             ? "grid-cols-3 md:w-auto md:inline-grid md:grid-cols-3" 
             : "grid-cols-2 md:w-auto md:inline-grid md:grid-cols-4"
         )}>
-          {!isAdmin && !isSupervisor && (
+          {!isAdmin && !isSupervisor && !isCuentaAdministrativa && (
             <TabsTrigger value="recibidos" className="flex items-center gap-2">
               <ArrowDownCircle size={14} />
               Mis Arrestos
             </TabsTrigger>
           )}
-          <TabsTrigger value="asignados" className="flex items-center gap-2">
-            <ArrowUpCircle size={14} />
-            Asignados
-          </TabsTrigger>
-          <TabsTrigger value="global" className="flex items-center gap-2">
-            <ListTodo size={14} />
-            Gestión Global
-          </TabsTrigger>
+          {!isCuentaAdministrativa && (
+            <TabsTrigger value="asignados" className="flex items-center gap-2">
+              <ArrowUpCircle size={14} />
+              Asignados
+            </TabsTrigger>
+          )}
+          {!isCuentaAdministrativa && (
+            <TabsTrigger value="global" className="flex items-center gap-2">
+              <ListTodo size={14} />
+              Gestión Global
+            </TabsTrigger>
+          )}
           <TabsTrigger value="balance" className="flex items-center gap-2">
             <FileSpreadsheet size={14} />
             Balance
@@ -344,7 +352,7 @@ const ArrestosPage = () => {
             </div>
             <div className="flex-1 text-right text-xs text-slate-500 italic pb-2 flex items-center justify-end gap-4">
               <span>Balance acumulado hasta finales de {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][selectedMonth]} {selectedYear}.</span>
-              {(isAdmin || isSupervisor) && (
+              {(isAdmin || isSupervisor || isCuentaAdministrativa) && (
                 <Button 
                     size="sm"
                     variant="outline" 
