@@ -560,3 +560,84 @@ export const generateArrestosGeneralExcel = async (usuarios: Usuario[]) => {
   const buffer = await workbook.xlsx.writeBuffer();
   saveAs(new Blob([buffer]), `balance-general-arrestos-${format(now, 'yyyy-MM-dd')}.xlsx`);
 };
+
+/**
+ * Genera una plantilla Excel para el registro masivo de usuarios
+ */
+export const generarPlantillaUsuariosExcel = async () => {
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('Usuarios');
+
+  // Configurar las columnas
+  worksheet.columns = [
+    { header: 'Nombre', key: 'nombre', width: 30 },
+    { header: 'Email', key: 'email', width: 35 },
+    { header: 'Teléfono', key: 'telefono', width: 20, style: { numFmt: '@' } },
+    { header: 'Rol', key: 'rol', width: 25 },
+    { header: 'Jerarquía / Rango', key: 'rango', width: 25 },
+    { header: 'Condición de Servicio', key: 'condicion', width: 25 },
+    { header: 'Estado Inicial', key: 'estado', width: 15 }
+  ];
+
+  // Estilizar encabezados
+  worksheet.getRow(1).font = { bold: true };
+  worksheet.getRow(1).eachCell(cell => {
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9ECEF' } };
+    cell.border = {
+      top: { style: 'thin' }, left: { style: 'thin' },
+      bottom: { style: 'thin' }, right: { style: 'thin' }
+    };
+  });
+
+  // Opciones para las listas desplegables
+  const roles = '"ADMIN,SUPERVISOR,CUENTA_ADMINISTRATIVA,BOMBERO"';
+  const rangos = '"ASP/ALUM,BOMBERO_RASO,CABO_PRIMERO,CABO_SEGUNDO,SARGENTO_PRIMERO,SARGENTO_SEGUNDO,SARGENTO_MAYOR,TENIENTE,CAPITAN,MAYOR,TENIENTE_CORONEL,CORONEL,DISTINGUIDO,N/A"';
+  const condiciones = '"REGULAR,TESISTA,COMANDANTE,EX_COMANDANTE,EGRESADO,ESPECIAL_12H"';
+  const estados = '"Activo,Inactivo"';
+
+  // Aplicar validación de datos a unas 500 filas para que tengan el formato y los desplegables
+  for (let i = 2; i <= 500; i++) {
+    // Rol
+    worksheet.getCell(`D${i}`).dataValidation = {
+      type: 'list',
+      allowBlank: false,
+      formulae: [roles],
+      showErrorMessage: true,
+      errorTitle: 'Rol inválido',
+      error: 'Por favor selecciona un rol de la lista.'
+    };
+    
+    // Jerarquía / Rango
+    worksheet.getCell(`E${i}`).dataValidation = {
+      type: 'list',
+      allowBlank: true,
+      formulae: [rangos],
+      showErrorMessage: true,
+      errorTitle: 'Rango inválido',
+      error: 'Por favor selecciona un rango de la lista.'
+    };
+
+    // Condición
+    worksheet.getCell(`F${i}`).dataValidation = {
+      type: 'list',
+      allowBlank: false,
+      formulae: [condiciones],
+      showErrorMessage: true,
+      errorTitle: 'Condición inválida',
+      error: 'Por favor selecciona una condición de la lista.'
+    };
+
+    // Estado Inicial
+    worksheet.getCell(`G${i}`).dataValidation = {
+      type: 'list',
+      allowBlank: false,
+      formulae: [estados],
+      showErrorMessage: true,
+      errorTitle: 'Estado inválido',
+      error: 'Por favor selecciona un estado de la lista.'
+    };
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(new Blob([buffer]), `plantilla-usuarios-${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
+};

@@ -490,3 +490,81 @@ export const cambiarPassword = async (req: Request, res: Response) => {
         res.status(500).json({ message: "Error interno del servidor" });
     }
 };
+
+// Crear usuarios en lote (C)
+export const crearUsuariosEnLote = async (req: Request, res: Response) => {
+    try {
+        const usuarios = req.body;
+        if (!Array.isArray(usuarios)) {
+            return res.status(400).json({ message: "Se esperaba un arreglo de usuarios" });
+        }
+
+        const requestingUser = (req as any).user;
+        let exitosos = 0;
+        let fallidos = 0;
+        const detalles: string[] = [];
+
+        for (const [index, usuarioData] of usuarios.entries()) {
+            try {
+                // Validamos los datos de cada usuario
+                const validatedData = UsuarioSchema.parse(usuarioData);
+
+                // Validamos roles
+                if (requestingUser.rol === 'SUPERVISOR' && validatedData.rol && validatedData.rol !== 'BOMBERO' && validatedData.rol !== 'CUENTA_ADMINISTRATIVA') {
+                    throw new Error(`Los inspectores solo pueden crear usuarios de tipo Bombero o Cuenta Administrativa.`);
+                }
+
+                if (requestingUser.rol === 'CUENTA_ADMINISTRATIVA' && validatedData.rol && validatedData.rol !== 'BOMBERO') {
+                    throw new Error(`Las cuentas administrativas solo pueden crear usuarios de tipo Bombero.`);
+                }
+
+                // Crear en Auth
+                const userRecord = await auth.createUser({
+                    email: validatedData.email,
+                    emailVerified: true,
+                    password: '123456',
+                    displayName: validatedData.nombre,
+                    disabled: !validatedData.activo
+                });
+
+                // Asignar rol
+                await admin.auth().setCustomUserClaims(userRecord.uid, {
+                    rol: validatedData.rol || "BOMBERO"
+                });
+
+                // Guardar en Firestore
+                const userRef = db.collection("usuarios").doc(userRecord.uid);
+                await userRef.set({
+                    ...validatedData,
+                    uid: userRecord.uid,
+                    fechaRegistro: new Date()
+                });
+
+                exitosos++;
+            } catch (error: any) {
+                fallidos++;
+                if (error.code === 'auth/email-already-exists') {
+                    detalles.push(`Fila ${index + 2} (${usuarioData.email || 'Sin correo'}): El correo ya está registrado.`);
+                } else if (error instanceof ZodError) {
+                    detalles.push(`Fila ${index + 2} (${usuarioData.nombre || 'Sin nombre'}): Datos inválidos.`);
+                } else if (error instanceof Error) {
+                    detalles.push(`Fila ${index + 2}: ${error.message}`);
+                } else {
+                    detalles.push(`Fila ${index + 2}: Error desconocido.`);
+                }
+            }
+        }
+
+        // Auditoría global del lote
+        const adminId = (req as any).user?.uid || "SISTEMA";
+        if (exitosos > 0 || fallidos > 0) {
+            await registrarAuditoria('CREAR_USUARIOS_LOTE', 'usuarios', 'LOTE', adminId, { exitosos, fallidos });
+        }
+
+        res.status(200).json({ exitosos, fallidos, detalles });
+
+    } catch (error: any) {
+        console.error(`Error en crearUsuariosEnLote: ${error.message}`);
+        res.status(500).json({ message: "Error interno del servidor al crear usuarios por lotes." });
+    }
+};
