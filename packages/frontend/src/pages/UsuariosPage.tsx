@@ -88,7 +88,7 @@ const UsuariosPage = () => {
 
   const handleDownloadTemplate = async () => {
     try {
-      await generarPlantillaUsuariosExcel();
+      await generarPlantillaUsuariosExcel(userData?.rol);
     } catch (error: any) {
       alert(error.message || 'Error al generar la plantilla');
     }

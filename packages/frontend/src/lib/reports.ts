@@ -564,7 +564,7 @@ export const generateArrestosGeneralExcel = async (usuarios: Usuario[]) => {
 /**
  * Genera una plantilla Excel para el registro masivo de usuarios
  */
-export const generarPlantillaUsuariosExcel = async () => {
+export const generarPlantillaUsuariosExcel = async (rolUsuario?: string) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Usuarios');
 
@@ -590,7 +590,12 @@ export const generarPlantillaUsuariosExcel = async () => {
   });
 
   // Opciones para las listas desplegables
-  const roles = '"ADMIN,SUPERVISOR,CUENTA_ADMINISTRATIVA,BOMBERO"';
+  let roles = '"ADMIN,SUPERVISOR,CUENTA_ADMINISTRATIVA,BOMBERO"';
+  if (rolUsuario === 'SUPERVISOR') {
+    roles = '"CUENTA_ADMINISTRATIVA,BOMBERO"';
+  } else if (rolUsuario === 'CUENTA_ADMINISTRATIVA') {
+    roles = '"BOMBERO"';
+  }
   const rangos = '"ASP/ALUM,BOMBERO_RASO,CABO_PRIMERO,CABO_SEGUNDO,SARGENTO_PRIMERO,SARGENTO_SEGUNDO,SARGENTO_MAYOR,TENIENTE,CAPITAN,MAYOR,TENIENTE_CORONEL,CORONEL,DISTINGUIDO,N/A"';
   const condiciones = '"REGULAR,TESISTA,COMANDANTE,EX_COMANDANTE,EGRESADO,ESPECIAL_12H"';
   const estados = '"Activo,Inactivo"';
