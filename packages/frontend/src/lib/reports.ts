@@ -646,3 +646,160 @@ export const generarPlantillaUsuariosExcel = async (rolUsuario?: string) => {
   const buffer = await workbook.xlsx.writeBuffer();
   saveAs(new Blob([buffer]), `plantilla-usuarios-${format(new Date(), 'yyyy-MM-dd')}.xlsx`);
 };
+
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+export interface BalanceAnualBombero {
+  num: number;
+  uid: string;
+  nombre: string;
+  rango: string;
+  condicion: string;
+  meses: ('NORMAL' | 'EXCEDIDO')[]; // índice 0=Enero … 11=Diciembre
+}
+
+/**
+ * Genera un Excel de Balance Anual con columnas: Nº, Personal, Jerarquía, Condición, Ene…Dic
+ */
+export const generateArrestosAnualExcel = async (balances: BalanceAnualBombero[], year: number) => {
+  const now = new Date();
+  const workbook = new ExcelJS.Workbook();
+  const ws = workbook.addWorksheet('Balance Anual', { views: [{ state: 'frozen', xSplit: 4, ySplit: 2 }] });
+
+  const totalCols = 4 + 12; // Nº + Personal + Jerarquía + Condición + 12 meses
+
+  // Fila 1: título
+  ws.mergeCells(1, 1, 1, totalCols);
+  const titleCell = ws.getCell(1, 1);
+  titleCell.value = `Balance Anual de Arrestos – ${year}`;
+  titleCell.font = { bold: true, size: 14 };
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+  titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE9ECEF' } };
+  ws.getRow(1).height = 24;
+
+  // Fila 2: encabezados
+  const headers = ['Nº', 'Personal', 'Jerarquía', 'Condición', ...MESES];
+  const headerRow = ws.getRow(2);
+  headers.forEach((h, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = h;
+    cell.font = { bold: true };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E2937' } };
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+  });
+  headerRow.height = 28;
+
+  // Anchos de columna
+  ws.getColumn(1).width = 5;
+  ws.getColumn(2).width = 32;
+  ws.getColumn(3).width = 20;
+  ws.getColumn(4).width = 14;
+  for (let m = 0; m < 12; m++) ws.getColumn(5 + m).width = 12;
+
+  // Filas de datos
+  balances.forEach((b, rowIdx) => {
+    const dataRow = ws.getRow(3 + rowIdx);
+    dataRow.getCell(1).value = b.num;
+    dataRow.getCell(2).value = b.nombre;
+    dataRow.getCell(3).value = b.rango;
+    dataRow.getCell(4).value = b.condicion;
+
+    b.meses.forEach((estado, m) => {
+      const cell = dataRow.getCell(5 + m);
+      cell.value = estado;
+      cell.alignment = { horizontal: 'center' };
+      if (estado === 'EXCEDIDO') {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFCCCC' } };
+        cell.font = { bold: true, color: { argb: 'FF990000' } };
+      } else {
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD4EDDA' } };
+        cell.font = { color: { argb: 'FF155724' } };
+      }
+    });
+
+    // Bordes toda la fila
+    for (let c = 1; c <= totalCols; c++) {
+      dataRow.getCell(c).border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+    }
+
+    // Alinear columnas de texto
+    dataRow.getCell(1).alignment = { horizontal: 'center' };
+    dataRow.getCell(3).alignment = { horizontal: 'center' };
+    dataRow.getCell(4).alignment = { horizontal: 'center' };
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(new Blob([buffer]), `balance-anual-arrestos-${year}-${format(now, 'yyyy-MM-dd')}.xlsx`);
+};
+
+/**
+ * Genera un PDF en landscape con el Balance Anual: columnas Nº, Personal, Jerarquía, Condición + 12 meses
+ */
+export const generateArrestosAnualReport = (balances: BalanceAnualBombero[], year: number) => {
+  const doc = new jsPDF({ orientation: 'landscape' });
+  const now = new Date();
+
+  // Cabecera
+  doc.setFontSize(16);
+  doc.setTextColor(33, 37, 41);
+  doc.text('Cuerpo de Bomberos Voluntarios USB', 148, 18, { align: 'center' });
+  doc.setFontSize(12);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Balance Anual de Arrestos – ${year}`, 148, 27, { align: 'center' });
+  doc.setFontSize(9);
+  doc.text(`Generado: ${format(now, "d 'de' MMMM 'de' yyyy, HH:mm", { locale: es })}`, 148, 34, { align: 'center' });
+
+  const head = [['Nº', 'Personal', 'Jerarquía', 'Condición', ...MESES]];
+  const body = balances.map(b => [
+    String(b.num),
+    b.nombre,
+    b.rango,
+    b.condicion,
+    ...b.meses
+  ]);
+
+  autoTable(doc, {
+    startY: 40,
+    head,
+    body,
+    theme: 'grid',
+    headStyles: { fillColor: [30, 41, 59], fontSize: 7, halign: 'center' },
+    bodyStyles: { fontSize: 6.5 },
+    columnStyles: {
+      0: { cellWidth: 8, halign: 'center' },
+      1: { cellWidth: 45 },
+      2: { cellWidth: 25, halign: 'center' },
+      3: { cellWidth: 20, halign: 'center' },
+      4: { cellWidth: 15, halign: 'center' },
+      5: { cellWidth: 15, halign: 'center' },
+      6: { cellWidth: 15, halign: 'center' },
+      7: { cellWidth: 15, halign: 'center' },
+      8: { cellWidth: 15, halign: 'center' },
+      9: { cellWidth: 15, halign: 'center' },
+      10: { cellWidth: 15, halign: 'center' },
+      11: { cellWidth: 15, halign: 'center' },
+      12: { cellWidth: 15, halign: 'center' },
+      13: { cellWidth: 15, halign: 'center' },
+      14: { cellWidth: 15, halign: 'center' },
+      15: { cellWidth: 15, halign: 'center' },
+    },
+    didParseCell(data) {
+      if (data.section === 'body' && data.column.index >= 4) {
+        const val = data.cell.raw as string;
+        if (val === 'EXCEDIDO') {
+          data.cell.styles.fillColor = [255, 204, 204];
+          data.cell.styles.textColor = [153, 0, 0];
+          data.cell.styles.fontStyle = 'bold';
+        } else if (val === 'NORMAL') {
+          data.cell.styles.fillColor = [212, 237, 218];
+          data.cell.styles.textColor = [21, 87, 36];
+        }
+      }
+    },
+    margin: { top: 20, left: 8, right: 8 },
+  });
+
+  doc.save(`balance-anual-arrestos-${year}-${format(now, 'yyyy-MM-dd')}.pdf`);
+};

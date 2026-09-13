@@ -7,21 +7,22 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
-import { 
-  ShieldAlert, 
-  Plus, 
+import {
+  ShieldAlert,
+  Plus,
   RefreshCw,
   ArrowDownCircle,
   ArrowUpCircle,
-  Edit2, 
-  Trash2, 
-  ListTodo, 
-  Info, 
-  FileText, 
-  Clock, 
+  Edit2,
+  Trash2,
+  ListTodo,
+  Info,
+  FileText,
+  Clock,
   FileSpreadsheet
 } from 'lucide-react';
-import { generateArrestosReport, generateArrestosGeneralExcel } from '@/lib/reports';
+import { generateArrestosReport, generateArrestosGeneralExcel, generateArrestosAnualExcel, generateArrestosAnualReport } from '@/lib/reports';
+import type { BalanceAnualBombero } from '@/lib/reports';
 import { format } from 'date-fns';
 import { type Arresto, type Usuario, REGLAS_CONDICION } from '@bomberos-usb/shared';
 import ArrestoForm from '@/components/ArrestoForm';
@@ -39,10 +40,10 @@ const ArrestosPage = () => {
       navigate('/');
     }
   }, [isAdmin, navigate]);
-  
+
   if (isAdmin) return null;
-  const [activeTab, setActiveTab] = useState<'recibidos' | 'asignados' | 'global' | 'balance'>(
-    isCuentaAdministrativa ? 'balance' : isSupervisor ? 'asignados' : 'recibidos'
+  const [activeTab, setActiveTab] = useState<'recibidos' | 'asignados' | 'global' | 'balance' | 'anual'>(
+    isCuentaAdministrativa ? 'global' : isSupervisor ? 'asignados' : 'recibidos'
   );
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
@@ -54,6 +55,8 @@ const ArrestosPage = () => {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isGeneralReportOpen, setIsGeneralReportOpen] = useState(false);
+  const [isAnualReportOpen, setIsAnualReportOpen] = useState(false);
+  const [anualYear, setAnualYear] = useState(new Date().getFullYear());
   const [recibidosSubTab, setRecibidosSubTab] = useState<'infracciones' | 'pagos'>('infracciones');
 
   // Resetear página al cambiar de pestaña o subpestaña
@@ -72,24 +75,24 @@ const ArrestosPage = () => {
   const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: ['arrestos', activeTab, activeTab === 'recibidos' ? recibidosSubTab : null, page, userData?.uid],
     queryFn: () => {
-        let url = `/arrestos?page=${page}&limit=${activeTab === 'balance' ? 2000 : limit}`;
-        if (activeTab === 'recibidos') {
-            url += '&relacion=recibidos';
-            if (recibidosSubTab === 'infracciones') {
-                url += '&tipo=INFRACCION';
-            } else {
-                url += '&tipo=PAGO';
-            }
+      let url = `/arrestos?page=${page}&limit=${activeTab === 'balance' || activeTab === 'anual' ? 2000 : limit}`;
+      if (activeTab === 'recibidos') {
+        url += '&relacion=recibidos';
+        if (recibidosSubTab === 'infracciones') {
+          url += '&tipo=INFRACCION';
+        } else {
+          url += '&tipo=PAGO';
         }
-        if (activeTab === 'asignados') url += '&relacion=asignados';
-        if (activeTab === 'global' || activeTab === 'balance') {
-            url += '&relacion=todo';
-        }
-        return api.get<{ items: Arresto[], totalItems: number, totalPages: number, currentPage: number }>(url);
+      }
+      if (activeTab === 'asignados') url += '&relacion=asignados';
+      if (activeTab === 'global' || activeTab === 'balance' || activeTab === 'anual') {
+        url += '&relacion=todo';
+      }
+      return api.get<{ items: Arresto[], totalItems: number, totalPages: number, currentPage: number }>(url);
     },
-    staleTime: 5 * 60 * 1000, // 5 minutos de caché fresca
+    staleTime: 5 * 60 * 1000,
     placeholderData: (prev) => prev,
-    enabled: !!userData?.uid
+    enabled: !!userData?.uid && activeTab !== 'anual'
   });
 
   const historial = data?.items || [];
@@ -108,8 +111,8 @@ const ArrestosPage = () => {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.delete(`/arrestos/${id}`),
     onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['arrestos'] });
-        queryClient.invalidateQueries({ queryKey: ['profile'] });
+      queryClient.invalidateQueries({ queryKey: ['arrestos'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
     }
   });
 
@@ -129,8 +132,8 @@ const ArrestosPage = () => {
 
     // Filtrar arrestos hasta esa fecha
     const relevantArrestos = historial.filter(a => {
-        const fecha = new Date(a.fechaRegistro);
-        return fecha <= limitDate;
+      const fecha = new Date(a.fechaRegistro);
+      return fecha <= limitDate;
     });
 
     return usuarios
@@ -138,15 +141,15 @@ const ArrestosPage = () => {
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
       .map((u, index) => {
         const userArrestos = relevantArrestos.filter(a => a.bomberoId === u.uid);
-        
+
         let calculatedBalance = 0;
         userArrestos.forEach(a => {
-            const mins = Number(a.minutos || 0);
-            if (a.tipo === 'INFRACCION') {
-                calculatedBalance += mins;
-            } else if (a.tipo === 'PAGO' && a.estado === 'PAGADO') {
-                calculatedBalance -= (mins * (a.pagoDoble ? 2 : 1));
-            }
+          const mins = Number(a.minutos || 0);
+          if (a.tipo === 'INFRACCION') {
+            calculatedBalance += mins;
+          } else if (a.tipo === 'PAGO' && a.estado === 'PAGADO') {
+            calculatedBalance -= (mins * (a.pagoDoble ? 2 : 1));
+          }
         });
 
         const uCondicion = u.condicion || 'REGULAR';
@@ -154,50 +157,99 @@ const ArrestosPage = () => {
         const uExcedido = calculatedBalance >= uReglas.maxMinutosArresto;
 
         return {
-            num: index + 1,
-            uid: u.uid,
-            nombre: u.nombre,
-            rango: u.rango || 'N/A',
-            condicion: uCondicion,
-            balance: Math.max(0, calculatedBalance),
-            limite: uReglas.maxMinutosArresto,
-            excedido: uExcedido
+          num: index + 1,
+          uid: u.uid,
+          nombre: u.nombre,
+          rango: u.rango || 'N/A',
+          condicion: uCondicion,
+          balance: Math.max(0, calculatedBalance),
+          limite: uReglas.maxMinutosArresto,
+          excedido: uExcedido
         };
       });
   };
 
   const balancesData = calculateBalances();
 
-  const handleDownloadGeneralReport = async () => {
-    try {
-        // Buscamos TODOS los arrestos del mes para el reporte (limit=1000)
-        const res = await api.get<{items: Arresto[]}>(`/arrestos?relacion=todo&limit=1000`);
-        
-        // Parcheamos nombres faltantes usando la lista de usuarios cargada
-        const patchedItems = res.items.map(item => {
-            if (!item.bomberoNombre || item.bomberoNombre === 'Sin Nombre' || item.bomberoNombre === 'Bombero') {
-                const user = usuarios?.find(u => u.uid === item.bomberoId);
-                if (user) return { ...item, bomberoNombre: user.nombre };
+  // Obtener historial completo para la pestaña anual (sin paginación)
+  const { data: anualData, isLoading: anualLoading } = useQuery({
+    queryKey: ['arrestos-anual', anualYear],
+    queryFn: () => api.get<{ items: Arresto[], totalItems: number, totalPages: number, currentPage: number }>(`/arrestos?relacion=todo&limit=5000`),
+    staleTime: 5 * 60 * 1000,
+    enabled: !!userData?.uid && activeTab === 'anual'
+  });
+
+  const calculateAnnualBalances = (): BalanceAnualBombero[] => {
+    if (!usuarios || !anualData?.items) return [];
+
+    const allArrestos = anualData.items;
+
+    return usuarios
+      .filter(u => u.rol === 'BOMBERO')
+      .sort((a, b) => a.nombre.localeCompare(b.nombre))
+      .map((u, index) => {
+        const uCondicion = u.condicion || 'REGULAR';
+        const uReglas = REGLAS_CONDICION[uCondicion as keyof typeof REGLAS_CONDICION] || REGLAS_CONDICION['REGULAR'];
+        const userArrestos = allArrestos.filter(a => a.bomberoId === u.uid);
+
+        const meses: ('NORMAL' | 'EXCEDIDO')[] = Array.from({ length: 12 }, (_, monthIdx) => {
+          // Calcular balance acumulado hasta el último segundo del mes monthIdx del año seleccionado
+          const limitDate = new Date(anualYear, monthIdx + 1, 0, 23, 59, 59);
+          let balance = 0;
+          userArrestos.forEach(a => {
+            const fecha = new Date(a.fechaRegistro);
+            if (fecha <= limitDate) {
+              const mins = Number(a.minutos || 0);
+              if (a.tipo === 'INFRACCION') balance += mins;
+              else if (a.tipo === 'PAGO' && a.estado === 'PAGADO') balance -= (mins * (a.pagoDoble ? 2 : 1));
             }
-            return item;
+          });
+          return Math.max(0, balance) >= uReglas.maxMinutosArresto ? 'EXCEDIDO' : 'NORMAL';
         });
 
-        generateArrestosReport(patchedItems, { period: 'mensual' });
+        return {
+          num: index + 1,
+          uid: u.uid,
+          nombre: u.nombre,
+          rango: u.rango || 'N/A',
+          condicion: uCondicion,
+          meses
+        };
+      });
+  };
+
+  const anualBalances = activeTab === 'anual' ? calculateAnnualBalances() : [];
+
+  const handleDownloadGeneralReport = async () => {
+    try {
+      // Buscamos TODOS los arrestos del mes para el reporte (limit=1000)
+      const res = await api.get<{ items: Arresto[] }>(`/arrestos?relacion=todo&limit=1000`);
+
+      // Parcheamos nombres faltantes usando la lista de usuarios cargada
+      const patchedItems = res.items.map(item => {
+        if (!item.bomberoNombre || item.bomberoNombre === 'Sin Nombre' || item.bomberoNombre === 'Bombero') {
+          const user = usuarios?.find(u => u.uid === item.bomberoId);
+          if (user) return { ...item, bomberoNombre: user.nombre };
+        }
+        return item;
+      });
+
+      generateArrestosReport(patchedItems, { period: 'mensual' });
     } catch (error) {
-        alert('Error al generar el reporte general');
+      alert('Error al generar el reporte general');
     }
   };
 
   const handleDownloadGeneralExcel = async () => {
     try {
-        if (!usuarios) {
-            alert('Cargando datos de usuarios, por favor intenta de nuevo en un momento.');
-            return;
-        }
-        await generateArrestosGeneralExcel(usuarios);
-        setIsGeneralReportOpen(false);
+      if (!usuarios) {
+        alert('Cargando datos de usuarios, por favor intenta de nuevo en un momento.');
+        return;
+      }
+      await generateArrestosGeneralExcel(usuarios);
+      setIsGeneralReportOpen(false);
     } catch (error) {
-        alert('Error al generar el reporte Excel');
+      alert('Error al generar el reporte Excel');
     }
   };
 
@@ -209,8 +261,6 @@ const ArrestosPage = () => {
         return <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">Pagado</Badge>;
       case 'RECHAZADO':
         return <Badge variant="destructive">Rechazado</Badge>;
-      case 'PENDIENTE_VALIDACION':
-        return <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200">Por Validar</Badge>;
       case 'PENDIENTE_PAGO':
       default:
         return <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200">Pendiente</Badge>;
@@ -219,7 +269,7 @@ const ArrestosPage = () => {
 
   const handleDelete = (id: string) => {
     if (confirm('¿Estás seguro de que deseas eliminar este arresto? Esto restaurará los minutos al balance del bombero.')) {
-        deleteMutation.mutate(id);
+      deleteMutation.mutate(id);
     }
   };
 
@@ -236,7 +286,7 @@ const ArrestosPage = () => {
           </h1>
           <p className="text-slate-500">Gestión de penalizaciones y cumplimiento de horas extras.</p>
         </div>
-        
+
         <div className="flex items-center gap-2">
           {!isCuentaAdministrativa && (
             <Button onClick={() => { setSelectedArresto(null); setFormType('INFRACCION'); setIsFormOpen(true); }} variant="default">
@@ -244,21 +294,19 @@ const ArrestosPage = () => {
               Asignar Arresto
             </Button>
           )}
-          
-          {!isSupervisor && !isCuentaAdministrativa && (
-            <Button onClick={() => { setSelectedArresto(null); setFormType('PAGO'); setIsFormOpen(true); }}>
+
+          <Button onClick={() => { setSelectedArresto(null); setFormType('PAGO'); setIsFormOpen(true); }}>
               <ArrowDownCircle size={20} className="mr-2" />
               Reportar Pago
-            </Button>
-          )}
+          </Button>
         </div>
       </div>
 
       {/* Balance Card */}
       {!isAdmin && !isSupervisor && !isCuentaAdministrativa && (
         <Card className={cn(
-            "overflow-hidden relative border",
-            isExcedido ? "bg-red-50 border-red-200" : "bg-primary/5 border-primary/10"
+          "overflow-hidden relative border",
+          isExcedido ? "bg-red-50 border-red-200" : "bg-primary/5 border-primary/10"
         )}>
           <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
             <Clock size={120} className={isExcedido ? "text-red-500" : "text-primary"} />
@@ -266,21 +314,21 @@ const ArrestosPage = () => {
           <CardContent className="p-6">
             <div className="flex flex-col md:flex-row md:items-center gap-6">
               <div className={cn(
-                  "p-4 rounded-xl shadow-sm border flex flex-col items-center justify-center min-w-[5rem] min-h-[5rem] shrink-0 bg-white",
-                  isExcedido ? "border-red-200" : ""
+                "p-4 rounded-xl shadow-sm border flex flex-col items-center justify-center min-w-[5rem] min-h-[5rem] shrink-0 bg-white",
+                isExcedido ? "border-red-200" : ""
               )}>
                 <span className={cn("text-3xl font-bold", isExcedido ? "text-red-600" : "text-primary")}>
-                    {horasCompletas}h {minutosRestantes}m
+                  {horasCompletas}h {minutosRestantes}m
                 </span>
                 <span className={cn("text-xs", isExcedido ? "text-red-400" : "text-slate-400")}>({balance} min)</span>
               </div>
               <div>
                 <h3 className={cn("text-lg font-bold", isExcedido ? "text-red-800" : "text-slate-800")}>
-                    Tus Horas de Arresto Pendientes
+                  Tus Horas de Arresto Pendientes
                 </h3>
                 <p className={cn("max-w-md mt-1", isExcedido ? "text-red-600/80 font-medium" : "text-slate-600")}>
-                  {isExcedido 
-                    ? `¡ALERTA! Has superado el límite máximo de ${userReglas.maxMinutosArresto} minutos para tu condición (${userCondicion}).` 
+                  {isExcedido
+                    ? `¡ALERTA! Has superado el límite máximo de ${userReglas.maxMinutosArresto} minutos para tu condición (${userCondicion}).`
                     : `Minutos que debes cubrir para estar al día. Tu límite máximo es de ${userReglas.maxMinutosArresto} minutos (${userCondicion}).`
                   }
                 </p>
@@ -295,10 +343,10 @@ const ArrestosPage = () => {
         <TabsList className={cn(
           "grid w-full mb-4",
           isCuentaAdministrativa
-            ? "grid-cols-1 md:w-auto md:inline-grid md:grid-cols-1"
-            : isAdmin || isSupervisor 
-            ? "grid-cols-3 md:w-auto md:inline-grid md:grid-cols-3" 
-            : "grid-cols-2 md:w-auto md:inline-grid md:grid-cols-4"
+            ? "grid-cols-3 md:w-auto md:inline-grid md:grid-cols-3"
+            : isAdmin || isSupervisor
+              ? "grid-cols-4 md:w-auto md:inline-grid md:grid-cols-4"
+              : "grid-cols-2 md:w-auto md:inline-grid md:grid-cols-5"
         )}>
           {!isAdmin && !isSupervisor && !isCuentaAdministrativa && (
             <TabsTrigger value="recibidos" className="flex items-center gap-2">
@@ -312,25 +360,27 @@ const ArrestosPage = () => {
               Asignados
             </TabsTrigger>
           )}
-          {!isCuentaAdministrativa && (
-            <TabsTrigger value="global" className="flex items-center gap-2">
+          <TabsTrigger value="global" className="flex items-center gap-2">
               <ListTodo size={14} />
               Gestión Global
-            </TabsTrigger>
-          )}
+          </TabsTrigger>
           <TabsTrigger value="balance" className="flex items-center gap-2">
             <FileSpreadsheet size={14} />
             Balance
           </TabsTrigger>
+          <TabsTrigger value="anual" className="flex items-center gap-2">
+            <FileText size={14} />
+            Balance Anual
+          </TabsTrigger>
         </TabsList>
 
-        {activeTab === 'balance' && (
+        {(activeTab === 'balance' || activeTab === 'anual') && (
           <div className="flex flex-col md:flex-row gap-4 mb-4 items-end bg-white p-4 rounded-lg border shadow-sm">
             <div className="w-full md:w-48">
               <Label className="text-xs mb-1 block">Año</Label>
-              <select 
-                value={selectedYear} 
-                onChange={(e) => setSelectedYear(Number(e.target.value))}
+              <select
+                value={activeTab === 'anual' ? anualYear : selectedYear}
+                onChange={(e) => activeTab === 'anual' ? setAnualYear(Number(e.target.value)) : setSelectedYear(Number(e.target.value))}
                 className="w-full flex h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 {[2024, 2025, 2026, 2027].map(y => (
@@ -338,29 +388,47 @@ const ArrestosPage = () => {
                 ))}
               </select>
             </div>
-            <div className="w-full md:w-48">
-              <Label className="text-xs mb-1 block">Mes</Label>
-              <select 
-                value={selectedMonth} 
-                onChange={(e) => setSelectedMonth(Number(e.target.value))}
-                className="w-full flex h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-              >
-                {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((m, i) => (
-                  <option key={m} value={i}>{m}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex-1 text-right text-xs text-slate-500 italic pb-2 flex items-center justify-end gap-4">
-              <span>Balance acumulado hasta finales de {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][selectedMonth]} {selectedYear}.</span>
-              {(isAdmin || isSupervisor || isCuentaAdministrativa) && (
-                <Button 
-                    size="sm"
-                    variant="outline" 
-                    onClick={() => setIsGeneralReportOpen(true)}
-                    className="bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary text-base"
+            {activeTab === 'balance' && (
+              <div className="w-full md:w-48">
+                <Label className="text-xs mb-1 block">Mes</Label>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                  className="w-full flex h-10 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                 >
-                    <FileSpreadsheet size={16} className="mr-2" />
-                    Descargar Balance
+                  {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'].map((m, i) => (
+                    <option key={m} value={i}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <div className="flex-1 text-right text-xs text-slate-500 italic pb-2 flex items-center justify-end gap-4">
+              {activeTab === 'balance' && (
+                <span>Balance acumulado hasta finales de {['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][selectedMonth]} {selectedYear}.</span>
+              )}
+              {activeTab === 'anual' && (
+                <span>Estado mensual (NORMAL / EXCEDIDO) de cada bombero durante {anualYear}.</span>
+              )}
+              {activeTab === 'balance' && (isAdmin || isSupervisor || isCuentaAdministrativa) && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setIsGeneralReportOpen(true)}
+                  className="bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary text-base"
+                >
+                  <FileSpreadsheet size={16} className="mr-2" />
+                  Descargar Balance
+                </Button>
+              )}
+              {activeTab === 'anual' && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setIsAnualReportOpen(true)}
+                  className="bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary text-base"
+                >
+                  <FileSpreadsheet size={16} className="mr-2" />
+                  Descargar Balance Anual
                 </Button>
               )}
             </div>
@@ -369,11 +437,63 @@ const ArrestosPage = () => {
 
         <Card>
           <CardContent className="p-0">
-            {isLoading ? (
+            {isLoading && activeTab !== 'anual' ? (
               <div className="p-12 text-center text-slate-500">
                 <RefreshCw className="mx-auto mb-4 animate-spin opacity-20" size={48} />
                 Cargando información...
               </div>
+            ) : activeTab === 'anual' ? (
+              anualLoading ? (
+                <div className="p-12 text-center text-slate-500">
+                  <RefreshCw className="mx-auto mb-4 animate-spin opacity-20" size={48} />
+                  Calculando balance anual...
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50/50">
+                        <th className="px-3 py-3 text-center font-semibold text-slate-700 w-10">Nº</th>
+                        <th className="px-3 py-3 text-left font-semibold text-slate-700">Personal</th>
+                        <th className="px-3 py-3 text-left font-semibold text-slate-700">Jerarquía</th>
+                        <th className="px-3 py-3 text-left font-semibold text-slate-700">Condición</th>
+                        {['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'].map(m => (
+                          <th key={m} className="px-2 py-3 text-center font-semibold text-slate-700 text-xs">{m}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {anualBalances.length === 0 ? (
+                        <tr>
+                          <td colSpan={16} className="px-4 py-12 text-center text-slate-500">
+                            No se encontraron bomberos.
+                          </td>
+                        </tr>
+                      ) : (
+                        anualBalances.map((b) => (
+                          <tr key={b.uid} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-3 py-2 text-center font-medium text-slate-500 text-xs">{b.num}</td>
+                            <td className="px-3 py-2 font-semibold text-slate-900 text-xs whitespace-nowrap">{b.nombre}</td>
+                            <td className="px-3 py-2 text-slate-600 text-xs">{b.rango}</td>
+                            <td className="px-3 py-2 text-xs">
+                              <Badge variant="outline" className="font-normal text-[10px]">{b.condicion}</Badge>
+                            </td>
+                            {b.meses.map((estado, idx) => (
+                              <td key={idx} className="px-1 py-2 text-center">
+                                {estado === 'EXCEDIDO' ? (
+                                  <span className="inline-block text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 whitespace-nowrap">EXC</span>
+                                ) : (
+                                  <span className="inline-block text-[9px] font-medium px-1 py-0.5 rounded bg-green-100 text-green-700">OK</span>
+                                )}
+                              </td>
+                            ))}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )
             ) : activeTab === 'balance' ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -434,23 +554,23 @@ const ArrestosPage = () => {
                 {activeTab === 'recibidos' && (
                   <div className="px-4 py-3 border-b bg-slate-50/50 flex items-center justify-between">
                     <div className="flex bg-slate-100 p-1 rounded-lg">
-                      <button 
+                      <button
                         onClick={() => setRecibidosSubTab('infracciones')}
                         className={cn(
                           "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
-                          recibidosSubTab === 'infracciones' 
-                            ? "bg-white text-slate-900 shadow-sm" 
+                          recibidosSubTab === 'infracciones'
+                            ? "bg-white text-slate-900 shadow-sm"
                             : "text-slate-500 hover:text-slate-700"
                         )}
                       >
                         Infracciones
                       </button>
-                      <button 
+                      <button
                         onClick={() => setRecibidosSubTab('pagos')}
                         className={cn(
                           "px-4 py-1.5 text-xs font-medium rounded-md transition-all",
-                          recibidosSubTab === 'pagos' 
-                            ? "bg-white text-slate-900 shadow-sm" 
+                          recibidosSubTab === 'pagos'
+                            ? "bg-white text-slate-900 shadow-sm"
                             : "text-slate-500 hover:text-slate-700"
                         )}
                       >
@@ -482,19 +602,19 @@ const ArrestosPage = () => {
                     <tbody className="divide-y">
                       {historial.length === 0 ? (
                         <tr>
-                          <td 
+                          <td
                             colSpan={
-                              5 + 
-                              (activeTab === 'global' || activeTab === 'asignados' ? 1 : 0) + 
+                              5 +
+                              (activeTab === 'global' || activeTab === 'asignados' ? 1 : 0) +
                               (activeTab === 'global' || (activeTab === 'recibidos' && recibidosSubTab === 'pagos') ? 1 : 0)
-                            } 
+                            }
                             className="px-4 py-12 text-center text-slate-500"
                           >
                             {activeTab === 'recibidos' && recibidosSubTab === 'pagos'
                               ? 'Aún no has reportado ningún pago.'
                               : activeTab === 'recibidos' && recibidosSubTab === 'infracciones'
-                              ? 'No tienes infracciones registradas. ¡Buen trabajo!'
-                              : 'No hay registros en esta categoría.'}
+                                ? 'No tienes infracciones registradas. ¡Buen trabajo!'
+                                : 'No hay registros en esta categoría.'}
                           </td>
                         </tr>
                       ) : (
@@ -544,8 +664,8 @@ const ArrestosPage = () => {
                             )}
                             <td className="px-4 py-3 text-right">
                               <div className="flex justify-end gap-2">
-                                <Button 
-                                  variant="ghost" 
+                                <Button
+                                  variant="ghost"
                                   size="sm"
                                   onClick={() => { setSelectedArresto(arresto); setIsDetailsOpen(true); }}
                                 >
@@ -557,25 +677,25 @@ const ArrestosPage = () => {
                                   const hoursSinceCreation = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
                                   const isOwner = arresto.registradoPor === userData?.uid;
                                   const canEdit = isSupervisor || isAdmin || (isOwner && hoursSinceCreation <= 48);
-                                  
+
                                   return canEdit && (
                                     <>
-                                        <Button 
-                                            variant="ghost" 
-                                            size="sm" 
-                                            onClick={() => { setSelectedArresto(arresto); setIsEditOpen(true); }}
-                                            className="text-slate-500 hover:text-primary"
-                                        >
-                                            <Edit2 size={16} />
-                                        </Button>
-                                        <Button 
-                                            variant="ghost" 
-                                            size="sm" 
-                                            onClick={() => handleDelete(arresto.id!)}
-                                            className="text-slate-500 hover:text-red-600"
-                                        >
-                                            <Trash2 size={16} />
-                                        </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => { setSelectedArresto(arresto); setIsEditOpen(true); }}
+                                        className="text-slate-500 hover:text-primary"
+                                      >
+                                        <Edit2 size={16} />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => handleDelete(arresto.id!)}
+                                        className="text-slate-500 hover:text-red-600"
+                                      >
+                                        <Trash2 size={16} />
+                                      </Button>
                                     </>
                                   );
                                 })()}
@@ -587,7 +707,7 @@ const ArrestosPage = () => {
                     </tbody>
                   </table>
                 </div>
-                
+
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between px-6 py-4 bg-slate-50 border-t">
                     <p className="text-sm text-slate-500">
@@ -620,21 +740,21 @@ const ArrestosPage = () => {
       </Tabs>
 
       {/* Modal: Formulario Registro */}
-      <Dialog 
-        open={isFormOpen} 
+      <Dialog
+        open={isFormOpen}
         onOpenChange={setIsFormOpen}
         title={formType === 'INFRACCION' ? 'Asignar Arresto' : 'Reportar Pago de Horas'}
         description={formType === 'INFRACCION' ? 'Ingresa los detalles de la penalización.' : 'Cuéntanos qué actividad realizaste para cubrir tus horas.'}
       >
-        <ArrestoForm 
-            tipo={formType} 
-            initialData={selectedArresto || undefined}
-            onSuccess={() => { 
-                setIsFormOpen(false); 
-                queryClient.invalidateQueries({ queryKey: ['arrestos'] });
-                queryClient.invalidateQueries({ queryKey: ['profile'] });
-            }} 
-            onCancel={() => setIsFormOpen(false)} 
+        <ArrestoForm
+          tipo={formType}
+          initialData={selectedArresto || undefined}
+          onSuccess={() => {
+            setIsFormOpen(false);
+            queryClient.invalidateQueries({ queryKey: ['arrestos'] });
+            queryClient.invalidateQueries({ queryKey: ['profile'] });
+          }}
+          onCancel={() => setIsFormOpen(false)}
         />
       </Dialog>
 
@@ -642,19 +762,18 @@ const ArrestosPage = () => {
       <Dialog
         open={isEditOpen}
         onOpenChange={setIsEditOpen}
-        title="Editar Arresto Asignado"
+        title={selectedArresto?.tipo === 'INFRACCION' ? "Editar Arresto Asignado" : "Editar Pago Reportado"}
         description="Puedes corregir los detalles, pero no puedes cambiar a qué bombero fue asignado."
       >
         {selectedArresto && (
-            <ArrestoForm 
-                tipo="INFRACCION"
-                initialData={selectedArresto}
-                onSuccess={() => { 
-                    setIsEditOpen(false); 
-                    queryClient.invalidateQueries({ queryKey: ['arrestos'] });
-                }}
-                onCancel={() => setIsEditOpen(false)} 
-            />
+          <ArrestoForm
+            tipo={selectedArresto.tipo} initialData={selectedArresto}
+            onSuccess={() => {
+              setIsEditOpen(false);
+              queryClient.invalidateQueries({ queryKey: ['arrestos'] });
+            }}
+            onCancel={() => setIsEditOpen(false)}
+          />
         )}
       </Dialog>
 
@@ -668,91 +787,91 @@ const ArrestosPage = () => {
         description="Información completa sobre esta infracción o pago."
       >
         {selectedArresto && (
-            <div className="space-y-4 py-2">
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-slate-50 rounded-lg border">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Tipo</p>
-                        <p className="text-sm font-medium">{selectedArresto.tipo === 'INFRACCION' ? 'Infracción' : 'Pago'}</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-lg border">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Fecha del Suceso</p>
-                        <p className="text-sm font-medium">{format(new Date(selectedArresto.fecha), 'dd/MM/yyyy')}</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-lg border">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Bombero</p>
-                        <p className="text-sm font-medium">{selectedArresto.bomberoNombre || 'No disponible'}</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-lg border">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Minutos</p>
-                        <p className={cn("text-sm font-bold", selectedArresto.tipo === 'INFRACCION' ? 'text-red-600' : 'text-emerald-600')}>
-                            {selectedArresto.tipo === 'INFRACCION' ? '+' : '-'}{selectedArresto.minutos}{selectedArresto.pagoDoble ? ' (Doble)' : ''}
-                        </p>
-                    </div>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-lg border space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
-                        {selectedArresto.tipo === 'INFRACCION' && (
-                            <>
-                                <div>
-                                    <p className="text-[10px] uppercase font-bold text-slate-400">Falta</p>
-                                    <p className="text-sm">{selectedArresto.falta || 'No especificada'}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[10px] uppercase font-bold text-slate-400">Turno</p>
-                                    <p className="text-sm">{selectedArresto.turno || 'No especificado'}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[10px] uppercase font-bold text-slate-400">Sede</p>
-                                    <p className="text-sm">{selectedArresto.sede || 'No especificada'}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[10px] uppercase font-bold text-slate-400">¿Notificó?</p>
-                                    <p className="text-sm">{selectedArresto.notifico ? 'Sí' : 'No'}</p>
-                                </div>
-                            </>
-                        )}
-                        {selectedArresto.tipo === 'PAGO' && (
-                            <>
-                                <div>
-                                    <p className="text-[10px] uppercase font-bold text-slate-400">Sede del Pago</p>
-                                    <p className="text-sm">{selectedArresto.sede || 'No especificada'}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[10px] uppercase font-bold text-slate-400">Turno del Pago</p>
-                                    <p className="text-sm">{selectedArresto.turno || 'No especificado'}</p>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                    
-                    <div>
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Motivo / Observaciones</p>
-                        <p className="text-sm italic text-slate-600">
-                            {selectedArresto.tipo === 'INFRACCION' ? selectedArresto.motivo : selectedArresto.observaciones || 'Sin observaciones'}
-                        </p>
-                    </div>
-                </div>
-
-                <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100 flex items-start gap-3">
-                    <Info size={16} className="text-blue-500 mt-0.5" />
-                    <div>
-                        <p className="text-[10px] uppercase font-bold text-blue-400">Auditoría</p>
-                        <p className="text-xs text-blue-700">
-                            Registrado por <strong>{selectedArresto.registradoPorNombre || 'Sistema'}</strong> el {format(new Date(selectedArresto.fechaRegistro), "dd/MM/yyyy 'a las' HH:mm")}
-                        </p>
-                        {selectedArresto.revisadoPor && (
-                             <p className="text-xs text-blue-700 mt-1">
-                                Validado por un supervisor. {selectedArresto.notasRevision && `Notas: ${selectedArresto.notasRevision}`}
-                             </p>
-                        )}
-                    </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                    <Button onClick={() => setIsDetailsOpen(false)}>Cerrar</Button>
-                </div>
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-3 bg-slate-50 rounded-lg border">
+                <p className="text-[10px] uppercase font-bold text-slate-400">Tipo</p>
+                <p className="text-sm font-medium">{selectedArresto.tipo === 'INFRACCION' ? 'Infracción' : 'Pago'}</p>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg border">
+                <p className="text-[10px] uppercase font-bold text-slate-400">Fecha del Suceso</p>
+                <p className="text-sm font-medium">{format(new Date(selectedArresto.fecha), 'dd/MM/yyyy')}</p>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg border">
+                <p className="text-[10px] uppercase font-bold text-slate-400">Bombero</p>
+                <p className="text-sm font-medium">{selectedArresto.bomberoNombre || 'No disponible'}</p>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg border">
+                <p className="text-[10px] uppercase font-bold text-slate-400">Minutos</p>
+                <p className={cn("text-sm font-bold", selectedArresto.tipo === 'INFRACCION' ? 'text-red-600' : 'text-emerald-600')}>
+                  {selectedArresto.tipo === 'INFRACCION' ? '+' : '-'}{selectedArresto.minutos}{selectedArresto.pagoDoble ? ' (Doble)' : ''}
+                </p>
+              </div>
             </div>
+
+            <div className="p-3 bg-slate-50 rounded-lg border space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                {selectedArresto.tipo === 'INFRACCION' && (
+                  <>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400">Falta</p>
+                      <p className="text-sm">{selectedArresto.falta || 'No especificada'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400">Turno</p>
+                      <p className="text-sm">{selectedArresto.turno || 'No especificado'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400">Sede</p>
+                      <p className="text-sm">{selectedArresto.sede || 'No especificada'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400">¿Notificó?</p>
+                      <p className="text-sm">{selectedArresto.notifico ? 'Sí' : 'No'}</p>
+                    </div>
+                  </>
+                )}
+                {selectedArresto.tipo === 'PAGO' && (
+                  <>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400">Sede del Pago</p>
+                      <p className="text-sm">{selectedArresto.sede || 'No especificada'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400">Turno del Pago</p>
+                      <p className="text-sm">{selectedArresto.turno || 'No especificado'}</p>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div>
+                <p className="text-[10px] uppercase font-bold text-slate-400">Motivo / Observaciones</p>
+                <p className="text-sm italic text-slate-600">
+                  {selectedArresto.tipo === 'INFRACCION' ? selectedArresto.motivo : selectedArresto.observaciones || 'Sin observaciones'}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-100 flex items-start gap-3">
+              <Info size={16} className="text-blue-500 mt-0.5" />
+              <div>
+                <p className="text-[10px] uppercase font-bold text-blue-400">Auditoría</p>
+                <p className="text-xs text-blue-700">
+                  Registrado por <strong>{selectedArresto.registradoPorNombre || 'Sistema'}</strong> el {format(new Date(selectedArresto.fechaRegistro), "dd/MM/yyyy 'a las' HH:mm")}
+                </p>
+                {selectedArresto.revisadoPor && (
+                  <p className="text-xs text-blue-700 mt-1">
+                    Validado por un supervisor. {selectedArresto.notasRevision && `Notas: ${selectedArresto.notasRevision}`}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <Button onClick={() => setIsDetailsOpen(false)}>Cerrar</Button>
+            </div>
+          </div>
         )}
       </Dialog>
 
@@ -764,21 +883,52 @@ const ArrestosPage = () => {
         description="Selecciona el formato para el balance de arrestos del personal durante este mes."
       >
         <div className="space-y-4 pt-4">
-            <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
-                <Button variant="outline" onClick={() => setIsGeneralReportOpen(false)}>
-                    Cancelar
-                </Button>
-                <Button 
-                    variant="outline" 
-                    className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-100" 
-                    onClick={() => { handleDownloadGeneralExcel(); setIsGeneralReportOpen(false); }}
-                >
-                    <FileSpreadsheet size={16} className="mr-2" /> Descargar Excel
-                </Button>
-                <Button onClick={() => { handleDownloadGeneralReport(); setIsGeneralReportOpen(false); }}>
-                    <FileText size={16} className="mr-2" /> Descargar PDF
-                </Button>
-            </div>
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
+            <Button variant="outline" onClick={() => setIsGeneralReportOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="outline"
+              className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-100"
+              onClick={() => { handleDownloadGeneralExcel(); setIsGeneralReportOpen(false); }}
+            >
+              <FileSpreadsheet size={16} className="mr-2" /> Descargar Excel
+            </Button>
+            <Button onClick={() => { handleDownloadGeneralReport(); setIsGeneralReportOpen(false); }}>
+              <FileText size={16} className="mr-2" /> Descargar PDF
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+      {/* Modal: Opciones Reporte Anual */}
+      <Dialog
+        open={isAnualReportOpen}
+        onOpenChange={setIsAnualReportOpen}
+        title="Descargar Balance Anual"
+        description={`Selecciona el formato para el balance anual de arrestos del personal durante ${anualYear}.`}
+      >
+        <div className="space-y-4 pt-4">
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t">
+            <Button variant="outline" onClick={() => setIsAnualReportOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="outline"
+              className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 border-emerald-100"
+              onClick={async () => {
+                await generateArrestosAnualExcel(anualBalances, anualYear);
+                setIsAnualReportOpen(false);
+              }}
+            >
+              <FileSpreadsheet size={16} className="mr-2" /> Descargar Excel
+            </Button>
+            <Button onClick={() => {
+              generateArrestosAnualReport(anualBalances, anualYear);
+              setIsAnualReportOpen(false);
+            }}>
+              <FileText size={16} className="mr-2" /> Descargar PDF
+            </Button>
+          </div>
         </div>
       </Dialog>
     </div>
@@ -786,4 +936,3 @@ const ArrestosPage = () => {
 };
 
 export default ArrestosPage;
-

@@ -126,7 +126,7 @@ export const reportarPago = async (req: Request, res: Response) => {
         const registradoPorNombre = user.nombre || "Usuario";
         
         // El bombero objetivo puede venir en el body o ser el mismo usuario
-        const esSuperior = user.rol === 'SUPERVISOR' || user.rol === 'ADMIN';
+        const esSuperior = user.rol === 'SUPERVISOR' || user.rol === 'ADMIN' || user.rol === 'CUENTA_ADMINISTRATIVA';
         const bomberoId = (esSuperior && req.body.bomberoId) ? req.body.bomberoId : registradoPor;
         
         const validatedData = ArrestoSchema.parse({
@@ -397,13 +397,18 @@ export const editarArresto = async (req: Request, res: Response) => {
                 throw new Error("No se permite cambiar el bombero asignado.");
             }
 
-            // Ajustar balance si cambiaron los minutos
-            if (updateData.minutos !== undefined && updateData.minutos !== arrestoData.minutos) {
+            // Ajustar balance si cambiaron los minutos o pagoDoble
+            const newMinutos = updateData.minutos !== undefined ? updateData.minutos : arrestoData.minutos;
+            const newPagoDoble = updateData.pagoDoble !== undefined ? updateData.pagoDoble : arrestoData.pagoDoble;
+            
+            const oldEfectivo = arrestoData.pagoDoble ? arrestoData.minutos * 2 : arrestoData.minutos;
+            const newEfectivo = newPagoDoble ? newMinutos * 2 : newMinutos;
+
+            if (oldEfectivo !== newEfectivo) {
                 const userRef = firestore.collection("usuarios").doc(arrestoData.bomberoId);
                 const userDoc = await transaction.get(userRef);
                 if (userDoc.exists) {
-                    const diff = updateData.minutos - arrestoData.minutos;
-                    let diffEfectivo = arrestoData.pagoDoble ? diff * 2 : diff;
+                    let diffEfectivo = newEfectivo - oldEfectivo;
                     
                     if (arrestoData.tipo === 'PAGO') {
                         diffEfectivo = -diffEfectivo; // Si aumenta el pago, disminuye la deuda

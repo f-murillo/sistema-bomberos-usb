@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const TipoArrestoSchema = z.enum(['INFRACCION', 'PAGO']);
-export const EstadoArrestoSchema = z.enum(['PENDIENTE_PAGO', 'PENDIENTE_VALIDACION', 'PAGADO', 'RECHAZADO']);
+export const EstadoArrestoSchema = z.enum(['PENDIENTE_PAGO', 'PAGADO', 'RECHAZADO']);
 export const SedeSchema = z.enum(['SARTENEJAS', 'LITORAL']);
 export const TurnoSchema = z.string();
 

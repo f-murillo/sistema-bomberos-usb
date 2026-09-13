@@ -17,6 +17,7 @@ export const RangoSchema = z.enum([
     'TENIENTE_CORONEL',
     'CORONEL',
     'DISTINGUIDO',
+    'BRIGADISTA',
     'N/A'
 ]);
 

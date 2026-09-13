@@ -22,7 +22,7 @@ const TURNOS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI
 const MOTIVOS = ['Desconocido', 'Diligencias Academicas', 'Diligencias Laborales', 'Diligencias Personales', 'Problemas de Transporte', 'Otro'];
 
 const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProps) => {
-    const { userData, isAdmin, isSupervisor } = useAuth();
+    const { userData, isAdmin, isSupervisor, isCuentaAdministrativa } = useAuth();
     const queryClient = useQueryClient();
     const isInfraccion = tipo === 'INFRACCION';
     const isEditing = !!initialData?.id && initialData.tipo === tipo;
@@ -50,7 +50,7 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
             // Si el prop 'tipo' es PAGO pero initialData era una INFRACCION, 
             // estamos en el flujo de "Pagar arresto específico"
             tipo: tipo,
-            estado: tipo === 'PAGO' ? 'PENDIENTE_VALIDACION' : initialData.estado,
+            estado: tipo === 'PAGO' ? 'PAGADO' : initialData.estado,
             parentArrestoId: tipo === 'PAGO' ? (initialData.id || initialData.parentArrestoId) : undefined,
             fecha: initialData.fecha ? new Date(initialData.fecha).toISOString().split('T')[0] : '',
             motivo: getInitialMotiveValue(),
@@ -60,11 +60,11 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
             notifico: tipo === 'PAGO' ? undefined : initialData.notifico,
             mesInasistencia: tipo === 'PAGO' ? undefined : initialData.mesInasistencia,
         } : {
-            bomberoId: isInfraccion ? '' : (userData?.uid || ''),
+            bomberoId: (isInfraccion || isAdmin || isSupervisor || isCuentaAdministrativa) ? '' : (userData?.uid || ''),
             tipo: tipo,
             fecha: new Date().toISOString().split('T')[0],
             minutos: 0,
-            estado: isInfraccion ? 'PENDIENTE_PAGO' : 'PENDIENTE_VALIDACION',
+            estado: isInfraccion ? 'PENDIENTE_PAGO' : 'PAGADO',
             notifico: false,
             pagoDoble: false,
             mesInasistencia: ''
@@ -126,7 +126,7 @@ const ArrestoForm = ({ tipo, onSuccess, onCancel, initialData }: ArrestoFormProp
     return (
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 py-2 px-1">
 
-            {(isInfraccion || isAdmin || isSupervisor) && (
+            {(isInfraccion || isAdmin || isSupervisor || isCuentaAdministrativa) && (
                 <div className="space-y-2">
                     <Label htmlFor="bomberoId">
                         {isInfraccion ? 'Seleccionar Funcionario (Infractor)' : 'Seleccionar Bombero'}
