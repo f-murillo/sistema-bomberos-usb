@@ -4,7 +4,7 @@ import { format, subDays, startOfMonth, isAfter } from 'date-fns';
 import { es } from 'date-fns/locale';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
-import { type Usuario, type Arresto, REGLAS_CONDICION } from '@bomberos-usb/shared';
+import { type Usuario, type Arresto, resolverReglasCondicion, type LimitesCondicion } from '@bomberos-usb/shared';
 
 export const generateGuardsReport = (guardias: any[], options: { period: 'semanal' | 'mensual', bomberoId?: string, bomberoNombre?: string } = { period: 'mensual' }) => {
   const doc = new jsPDF();
@@ -454,7 +454,7 @@ export const generateArrestosExcel = async (arrestos: Arresto[], options: { peri
 /**
  * Genera el reporte consolidado de balances (Imagen 3 del requerimiento) usando ExcelJS para estilos
  */
-export const generateArrestosGeneralExcel = async (usuarios: Usuario[]) => {
+export const generateArrestosGeneralExcel = async (usuarios: Usuario[], limites?: LimitesCondicion | null) => {
   const now = new Date();
   const dateStr = format(now, 'dd/MM/yyyy');
   
@@ -516,7 +516,7 @@ export const generateArrestosGeneralExcel = async (usuarios: Usuario[]) => {
 
   filteredUsers.forEach((u, index) => {
     const condicion = u.condicion || 'REGULAR';
-    const reglas = REGLAS_CONDICION[condicion] || REGLAS_CONDICION['REGULAR'];
+    const reglas = resolverReglasCondicion(condicion, limites);
     const balance = u.minutosArresto || 0;
     const isExcedido = balance >= reglas.maxMinutosArresto;
 
@@ -596,7 +596,7 @@ export const generarPlantillaUsuariosExcel = async (rolUsuario?: string) => {
   } else if (rolUsuario === 'CUENTA_ADMINISTRATIVA') {
     roles = '"BOMBERO"';
   }
-  const rangos = '"ASP/ALUM,BOMBERO_RASO,CABO_PRIMERO,CABO_SEGUNDO,SARGENTO_PRIMERO,SARGENTO_SEGUNDO,SARGENTO_MAYOR,TENIENTE,CAPITAN,MAYOR,TENIENTE_CORONEL,CORONEL,DISTINGUIDO,N/A"';
+  const rangos = '"BRIGADISTA,ASP/ALUM,BOMBERO_RASO,CABO_PRIMERO,CABO_SEGUNDO,SARGENTO_PRIMERO,SARGENTO_SEGUNDO,SARGENTO_MAYOR,TENIENTE,PRIMER_TENIENTE,CAPITAN,MAYOR,TENIENTE_CORONEL,CORONEL,DISTINGUIDO,N/A"';
   const condiciones = '"REGULAR,TESISTA,COMANDANTE,EX_COMANDANTE,EGRESADO,ESPECIAL_12H"';
   const estados = '"Activo,Inactivo"';
 
@@ -649,14 +649,23 @@ export const generarPlantillaUsuariosExcel = async (rolUsuario?: string) => {
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
+export interface MesBalanceAnual {
+  estado: 'NORMAL' | 'EXCEDIDO';
+  minutos: number; // minutos pendientes acumulados al cierre de ese mes
+}
+
 export interface BalanceAnualBombero {
   num: number;
   uid: string;
   nombre: string;
   rango: string;
   condicion: string;
-  meses: ('NORMAL' | 'EXCEDIDO')[]; // índice 0=Enero … 11=Diciembre
+  meses: MesBalanceAnual[]; // índice 0=Enero … 11=Diciembre
 }
+
+// Formato de celda: "NORMAL (1.234)" / "EXCEDIDO (1.234)" (minutos con separador de miles)
+const formatCeldaMes = (mes: MesBalanceAnual) =>
+  `${mes.estado} (${mes.minutos.toLocaleString('es-VE')})`;
 
 /**
  * Genera un Excel de Balance Anual con columnas: Nº, Personal, Jerarquía, Condición, Ene…Dic
@@ -696,7 +705,7 @@ export const generateArrestosAnualExcel = async (balances: BalanceAnualBombero[]
   ws.getColumn(2).width = 32;
   ws.getColumn(3).width = 20;
   ws.getColumn(4).width = 14;
-  for (let m = 0; m < 12; m++) ws.getColumn(5 + m).width = 12;
+  for (let m = 0; m < 12; m++) ws.getColumn(5 + m).width = 17;
 
   // Filas de datos
   balances.forEach((b, rowIdx) => {
@@ -706,11 +715,11 @@ export const generateArrestosAnualExcel = async (balances: BalanceAnualBombero[]
     dataRow.getCell(3).value = b.rango;
     dataRow.getCell(4).value = b.condicion;
 
-    b.meses.forEach((estado, m) => {
+    b.meses.forEach((mes, m) => {
       const cell = dataRow.getCell(5 + m);
-      cell.value = estado;
+      cell.value = formatCeldaMes(mes);
       cell.alignment = { horizontal: 'center' };
-      if (estado === 'EXCEDIDO') {
+      if (mes.estado === 'EXCEDIDO') {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFCCCC' } };
         cell.font = { bold: true, color: { argb: 'FF990000' } };
       } else {
@@ -757,7 +766,7 @@ export const generateArrestosAnualReport = (balances: BalanceAnualBombero[], yea
     b.nombre,
     b.rango,
     b.condicion,
-    ...b.meses
+    ...b.meses.map(formatCeldaMes)
   ]);
 
   autoTable(doc, {
@@ -766,7 +775,7 @@ export const generateArrestosAnualReport = (balances: BalanceAnualBombero[], yea
     body,
     theme: 'grid',
     headStyles: { fillColor: [30, 41, 59], fontSize: 7, halign: 'center' },
-    bodyStyles: { fontSize: 6.5 },
+    bodyStyles: { fontSize: 6.5, overflow: 'linebreak' },
     columnStyles: {
       0: { cellWidth: 8, halign: 'center' },
       1: { cellWidth: 45 },
@@ -787,12 +796,12 @@ export const generateArrestosAnualReport = (balances: BalanceAnualBombero[], yea
     },
     didParseCell(data) {
       if (data.section === 'body' && data.column.index >= 4) {
-        const val = data.cell.raw as string;
-        if (val === 'EXCEDIDO') {
+        const val = String(data.cell.raw ?? '');
+        if (val.startsWith('EXCEDIDO')) {
           data.cell.styles.fillColor = [255, 204, 204];
           data.cell.styles.textColor = [153, 0, 0];
           data.cell.styles.fontStyle = 'bold';
-        } else if (val === 'NORMAL') {
+        } else if (val.startsWith('NORMAL')) {
           data.cell.styles.fillColor = [212, 237, 218];
           data.cell.styles.textColor = [21, 87, 36];
         }

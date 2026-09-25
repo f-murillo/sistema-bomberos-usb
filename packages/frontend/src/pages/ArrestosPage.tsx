@@ -19,15 +19,22 @@ import {
   Info,
   FileText,
   Clock,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Search,
+  Settings,
+  CheckCircle2,
+  AlertTriangle,
+  Save,
+  RotateCcw
 } from 'lucide-react';
 import { generateArrestosReport, generateArrestosGeneralExcel, generateArrestosAnualExcel, generateArrestosAnualReport } from '@/lib/reports';
-import type { BalanceAnualBombero } from '@/lib/reports';
+import type { BalanceAnualBombero, MesBalanceAnual } from '@/lib/reports';
 import { format } from 'date-fns';
-import { type Arresto, type Usuario, REGLAS_CONDICION } from '@bomberos-usb/shared';
+import { type Arresto, type Usuario, REGLAS_CONDICION, resolverReglasCondicion, type LimitesCondicion } from '@bomberos-usb/shared';
 import ArrestoForm from '@/components/ArrestoForm';
 import { cn } from '@/lib/utils';
 import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const ArrestosPage = () => {
@@ -41,8 +48,7 @@ const ArrestosPage = () => {
     }
   }, [isAdmin, navigate]);
 
-  if (isAdmin) return null;
-  const [activeTab, setActiveTab] = useState<'recibidos' | 'asignados' | 'global' | 'balance' | 'anual'>(
+  const [activeTab, setActiveTab] = useState<'recibidos' | 'asignados' | 'global' | 'balance' | 'anual' | 'limites'>(
     isCuentaAdministrativa ? 'global' : isSupervisor ? 'asignados' : 'recibidos'
   );
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
@@ -58,22 +64,59 @@ const ArrestosPage = () => {
   const [isAnualReportOpen, setIsAnualReportOpen] = useState(false);
   const [anualYear, setAnualYear] = useState(new Date().getFullYear());
   const [recibidosSubTab, setRecibidosSubTab] = useState<'infracciones' | 'pagos'>('infracciones');
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Resetear página al cambiar de pestaña o subpestaña
   useEffect(() => {
     setPage(1);
   }, [activeTab, recibidosSubTab]);
 
-  // Obtener lista de usuarios para el reporte individual
+  // Obtener lista de usuarios para el reporte individual (limite alto: Balance y Balance Anual deben ver a TODOS)
   const { data: usuarios } = useQuery({
     queryKey: ['usuarios-reporte'],
-    queryFn: () => api.get<any[]>('/usuarios'),
+    queryFn: () => api.get<Usuario[]>('/usuarios?limite=1000'),
     enabled: !!userData?.uid
+  });
+
+  // Límites de minutos por condición (configurables; fallback a REGLAS_CONDICION)
+  const { data: limitesData } = useQuery({
+    queryKey: ['limites-condicion'],
+    queryFn: () => api.get<{ limites: LimitesCondicion }>('/config/limites'),
+    staleTime: 5 * 60 * 1000,
+    enabled: !!userData?.uid
+  });
+  const limitesCondicion = limitesData?.limites;
+
+  // ---- Estado de la pestaña "Límites" (editable solo por Inspector General / Cuenta Admin) ----
+  const puedeEditarLimites = isSupervisor || isCuentaAdministrativa;
+  const [limitesDraft, setLimitesDraft] = useState<Record<string, string> | null>(null);
+  const [limitesMsg, setLimitesMsg] = useState<{ tipo: 'ok' | 'error'; texto: string } | null>(null);
+
+  // Valores vigentes por condición (configurados o por defecto). El borrador solo
+  // existe mientras el usuario edita; si es null se derivan de estos valores.
+  const limitesVigentes: Record<string, string> = {};
+  (Object.keys(REGLAS_CONDICION) as (keyof typeof REGLAS_CONDICION)[]).forEach((c) => {
+    limitesVigentes[c] = String(limitesCondicion?.[c]?.maxMinutosArresto ?? REGLAS_CONDICION[c].maxMinutosArresto);
+  });
+  const limitesVisibles = limitesDraft ?? limitesVigentes;
+
+  const saveLimitesMutation = useMutation({
+    mutationFn: (payload: Record<string, { maxMinutosArresto: number }>) =>
+      api.put('/config/limites', { limites: payload }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['limites-condicion'] });
+      // Se limpia el borrador para que los inputs muestren los valores recién guardados
+      setLimitesDraft(null);
+      setLimitesMsg({ tipo: 'ok', texto: 'Límites guardados correctamente. Se aplicarán en Balance, Balance Anual y reportes.' });
+    },
+    onError: (error: Error) => {
+      setLimitesMsg({ tipo: 'error', texto: error?.message || 'Error al guardar los límites.' });
+    }
   });
 
   // 1. Obtener historial según el tab activo y página
   const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: ['arrestos', activeTab, activeTab === 'recibidos' ? recibidosSubTab : null, page, userData?.uid],
+    queryKey: ['arrestos', activeTab, activeTab === 'recibidos' ? recibidosSubTab : null, page, searchTerm, userData?.uid],
     queryFn: () => {
       let url = `/arrestos?page=${page}&limit=${activeTab === 'balance' || activeTab === 'anual' ? 2000 : limit}`;
       if (activeTab === 'recibidos') {
@@ -88,14 +131,27 @@ const ArrestosPage = () => {
       if (activeTab === 'global' || activeTab === 'balance' || activeTab === 'anual') {
         url += '&relacion=todo';
       }
+      if (searchTerm && activeTab !== 'balance' && activeTab !== 'anual') {
+        url += `&search=${encodeURIComponent(searchTerm)}`;
+      }
       return api.get<{ items: Arresto[], totalItems: number, totalPages: number, currentPage: number }>(url);
     },
     staleTime: 5 * 60 * 1000,
     placeholderData: (prev) => prev,
-    enabled: !!userData?.uid && activeTab !== 'anual'
+    enabled: !!userData?.uid && activeTab !== 'anual' && activeTab !== 'limites'
   });
 
   const historial = data?.items || [];
+  const filteredHistorial = (activeTab !== 'balance' && activeTab !== 'anual' && searchTerm)
+    ? historial.filter(a => {
+        const term = searchTerm.toLowerCase();
+        return (
+          (a.bomberoNombre && a.bomberoNombre.toLowerCase().includes(term)) ||
+          (a.motivo && a.motivo.toLowerCase().includes(term)) ||
+          (a.falta && a.falta.toLowerCase().includes(term))
+        );
+      })
+    : historial;
   const totalPages = data?.totalPages || 1;
 
   // 2. Obtener datos actualizados del usuario (para el balance)
@@ -120,7 +176,7 @@ const ArrestosPage = () => {
   const horasCompletas = Math.floor(balance / 60);
   const minutosRestantes = balance % 60;
   const userCondicion = userProfile?.condicion || 'REGULAR';
-  const userReglas = REGLAS_CONDICION[userCondicion as keyof typeof REGLAS_CONDICION] || REGLAS_CONDICION['REGULAR'];
+  const userReglas = resolverReglasCondicion(userCondicion, limitesCondicion);
   const isExcedido = balance >= userReglas.maxMinutosArresto;
 
   // Lógica para calcular balance histórico por usuario hasta el mes seleccionado
@@ -143,17 +199,21 @@ const ArrestosPage = () => {
         const userArrestos = relevantArrestos.filter(a => a.bomberoId === u.uid);
 
         let calculatedBalance = 0;
+        
+        // Ordenar cronológicamente para no acumular saldo negativo
+        userArrestos.sort((a, b) => new Date(a.fechaRegistro).getTime() - new Date(b.fechaRegistro).getTime());
+        
         userArrestos.forEach(a => {
           const mins = Number(a.minutos || 0);
           if (a.tipo === 'INFRACCION') {
             calculatedBalance += mins;
           } else if (a.tipo === 'PAGO' && a.estado === 'PAGADO') {
-            calculatedBalance -= (mins * (a.pagoDoble ? 2 : 1));
+            calculatedBalance = Math.max(0, calculatedBalance - (mins * (a.pagoDoble ? 2 : 1)));
           }
         });
 
         const uCondicion = u.condicion || 'REGULAR';
-        const uReglas = REGLAS_CONDICION[uCondicion as keyof typeof REGLAS_CONDICION] || REGLAS_CONDICION['REGULAR'];
+        const uReglas = resolverReglasCondicion(uCondicion, limitesCondicion);
         const uExcedido = calculatedBalance >= uReglas.maxMinutosArresto;
 
         return {
@@ -162,7 +222,7 @@ const ArrestosPage = () => {
           nombre: u.nombre,
           rango: u.rango || 'N/A',
           condicion: uCondicion,
-          balance: Math.max(0, calculatedBalance),
+          balance: calculatedBalance,
           limite: uReglas.maxMinutosArresto,
           excedido: uExcedido
         };
@@ -189,27 +249,31 @@ const ArrestosPage = () => {
       .sort((a, b) => a.nombre.localeCompare(b.nombre))
       .map((u, index) => {
         const uCondicion = u.condicion || 'REGULAR';
-        const uReglas = REGLAS_CONDICION[uCondicion as keyof typeof REGLAS_CONDICION] || REGLAS_CONDICION['REGULAR'];
+        const uReglas = resolverReglasCondicion(uCondicion, limitesCondicion);
         const userArrestos = allArrestos.filter(a => a.bomberoId === u.uid);
 
-        const meses: ('NORMAL' | 'EXCEDIDO')[] = Array.from({ length: 12 }, (_, monthIdx) => {
+        const meses: MesBalanceAnual[] = Array.from({ length: 12 }, (_, monthIdx) => {
           // Calcular balance acumulado hasta el último segundo del mes monthIdx del año seleccionado
           const limitDate = new Date(anualYear, monthIdx + 1, 0, 23, 59, 59);
           let balance = 0;
-          userArrestos.forEach(a => {
-            const fecha = new Date(a.fechaRegistro);
-            if (fecha <= limitDate) {
-              const mins = Number(a.minutos || 0);
-              if (a.tipo === 'INFRACCION') balance += mins;
-              else if (a.tipo === 'PAGO' && a.estado === 'PAGADO') balance -= (mins * (a.pagoDoble ? 2 : 1));
-            }
+          
+          const validArrestos = userArrestos.filter(a => new Date(a.fechaRegistro) <= limitDate);
+          validArrestos.sort((a, b) => new Date(a.fechaRegistro).getTime() - new Date(b.fechaRegistro).getTime());
+          
+          validArrestos.forEach(a => {
+            const mins = Number(a.minutos || 0);
+            if (a.tipo === 'INFRACCION') balance += mins;
+            else if (a.tipo === 'PAGO' && a.estado === 'PAGADO') balance = Math.max(0, balance - (mins * (a.pagoDoble ? 2 : 1)));
           });
-          return Math.max(0, balance) >= uReglas.maxMinutosArresto ? 'EXCEDIDO' : 'NORMAL';
+          return {
+            estado: balance >= uReglas.maxMinutosArresto ? 'EXCEDIDO' as const : 'NORMAL' as const,
+            minutos: balance
+          };
         });
 
         return {
           num: index + 1,
-          uid: u.uid,
+          uid: u.uid ?? '',
           nombre: u.nombre,
           rango: u.rango || 'N/A',
           condicion: uCondicion,
@@ -219,6 +283,9 @@ const ArrestosPage = () => {
   };
 
   const anualBalances = activeTab === 'anual' ? calculateAnnualBalances() : [];
+
+  const filteredBalancesData = balancesData.filter(b => b.nombre.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredAnualBalances = anualBalances.filter(b => b.nombre.toLowerCase().includes(searchTerm.toLowerCase()));
 
   const handleDownloadGeneralReport = async () => {
     try {
@@ -246,11 +313,37 @@ const ArrestosPage = () => {
         alert('Cargando datos de usuarios, por favor intenta de nuevo en un momento.');
         return;
       }
-      await generateArrestosGeneralExcel(usuarios);
+      await generateArrestosGeneralExcel(usuarios, limitesCondicion);
       setIsGeneralReportOpen(false);
     } catch (error) {
       alert('Error al generar el reporte Excel');
     }
+  };
+
+  // Guardar límites editados (validación local antes de enviar)
+  const handleGuardarLimites = () => {
+    const payload: Record<string, { maxMinutosArresto: number }> = {};
+    for (const [cond, valor] of Object.entries(limitesVisibles)) {
+      const num = Number(valor);
+      if (!Number.isFinite(num) || !Number.isInteger(num) || num <= 0) {
+        setLimitesMsg({ tipo: 'error', texto: `El límite de ${cond} debe ser un número entero mayor a 0.` });
+        return;
+      }
+      payload[cond] = { maxMinutosArresto: num };
+    }
+
+    setLimitesMsg(null);
+    saveLimitesMutation.mutate(payload);
+  };
+
+  // Restaurar los valores por defecto del código (sin guardar hasta pulsar "Guardar")
+  const handleRestaurarLimites = () => {
+    const draft: Record<string, string> = {};
+    (Object.keys(REGLAS_CONDICION) as (keyof typeof REGLAS_CONDICION)[]).forEach((c) => {
+      draft[c] = String(REGLAS_CONDICION[c].maxMinutosArresto);
+    });
+    setLimitesDraft(draft);
+    setLimitesMsg({ tipo: 'ok', texto: 'Valores por defecto cargados en el formulario. Pulsa "Guardar Cambios" para aplicarlos.' });
   };
 
 
@@ -273,7 +366,8 @@ const ArrestosPage = () => {
     }
   };
 
-
+  // Los hooks siempre se ejecutan en el mismo orden: el guard de ADMIN va después de todos ellos
+  if (isAdmin) return null;
 
   return (
     <div className="space-y-6">
@@ -288,12 +382,10 @@ const ArrestosPage = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {!isCuentaAdministrativa && (
-            <Button onClick={() => { setSelectedArresto(null); setFormType('INFRACCION'); setIsFormOpen(true); }} variant="default">
-              <Plus size={20} className="mr-2" />
-              Asignar Arresto
-            </Button>
-          )}
+          <Button onClick={() => { setSelectedArresto(null); setFormType('INFRACCION'); setIsFormOpen(true); }} variant="default">
+            <Plus size={20} className="mr-2" />
+            Asignar Arresto
+          </Button>
 
           <Button onClick={() => { setSelectedArresto(null); setFormType('PAGO'); setIsFormOpen(true); }}>
               <ArrowDownCircle size={20} className="mr-2" />
@@ -339,27 +431,18 @@ const ArrestosPage = () => {
       )}
 
       {/* Tabs de Listado */}
-      <Tabs defaultValue={isCuentaAdministrativa ? "balance" : isAdmin || isSupervisor ? "asignados" : "recibidos"} onValueChange={(v) => setActiveTab(v as any)}>
-        <TabsList className={cn(
-          "grid w-full mb-4",
-          isCuentaAdministrativa
-            ? "grid-cols-3 md:w-auto md:inline-grid md:grid-cols-3"
-            : isAdmin || isSupervisor
-              ? "grid-cols-4 md:w-auto md:inline-grid md:grid-cols-4"
-              : "grid-cols-2 md:w-auto md:inline-grid md:grid-cols-5"
-        )}>
-          {!isAdmin && !isSupervisor && !isCuentaAdministrativa && (
+      <Tabs defaultValue={isCuentaAdministrativa ? "global" : isAdmin || isSupervisor ? "asignados" : "recibidos"} onValueChange={(v) => setActiveTab(v as any)}>
+        <TabsList className="grid w-full mb-4 grid-cols-2 md:w-auto md:inline-grid md:grid-cols-5">
+          {(!isCuentaAdministrativa && !isAdmin && !isSupervisor) && (
             <TabsTrigger value="recibidos" className="flex items-center gap-2">
               <ArrowDownCircle size={14} />
               Mis Arrestos
             </TabsTrigger>
           )}
-          {!isCuentaAdministrativa && (
-            <TabsTrigger value="asignados" className="flex items-center gap-2">
-              <ArrowUpCircle size={14} />
-              Asignados
-            </TabsTrigger>
-          )}
+          <TabsTrigger value="asignados" className="flex items-center gap-2">
+            <ArrowUpCircle size={14} />
+            Asignados
+          </TabsTrigger>
           <TabsTrigger value="global" className="flex items-center gap-2">
               <ListTodo size={14} />
               Gestión Global
@@ -372,7 +455,35 @@ const ArrestosPage = () => {
             <FileText size={14} />
             Balance Anual
           </TabsTrigger>
+          {puedeEditarLimites && (
+            <TabsTrigger value="limites" className="flex items-center gap-2">
+              <Settings size={14} />
+              Límites
+            </TabsTrigger>
+          )}
         </TabsList>
+
+        {/* Filtros y Buscador General */}
+        {activeTab !== 'limites' && (
+        <div className="flex flex-col sm:flex-row gap-4 items-stretch sm:items-center bg-white p-4 rounded-lg border border-slate-200 shadow-sm mb-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+            <Input
+              placeholder="Buscar por nombre, motivo o falta..."
+              className="pl-10"
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setPage(1);
+              }}
+            />
+          </div>
+          <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ['arrestos'] })} className="flex justify-center gap-2">
+            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+            Actualizar
+          </Button>
+        </div>
+        )}
 
         {(activeTab === 'balance' || activeTab === 'anual') && (
           <div className="flex flex-col md:flex-row gap-4 mb-4 items-end bg-white p-4 rounded-lg border shadow-sm">
@@ -463,14 +574,14 @@ const ArrestosPage = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {anualBalances.length === 0 ? (
+                      {filteredAnualBalances.length === 0 ? (
                         <tr>
                           <td colSpan={16} className="px-4 py-12 text-center text-slate-500">
                             No se encontraron bomberos.
                           </td>
                         </tr>
                       ) : (
-                        anualBalances.map((b) => (
+                        filteredAnualBalances.map((b) => (
                           <tr key={b.uid} className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-3 py-2 text-center font-medium text-slate-500 text-xs">{b.num}</td>
                             <td className="px-3 py-2 font-semibold text-slate-900 text-xs whitespace-nowrap">{b.nombre}</td>
@@ -478,12 +589,12 @@ const ArrestosPage = () => {
                             <td className="px-3 py-2 text-xs">
                               <Badge variant="outline" className="font-normal text-[10px]">{b.condicion}</Badge>
                             </td>
-                            {b.meses.map((estado, idx) => (
+                            {b.meses.map((mes, idx) => (
                               <td key={idx} className="px-1 py-2 text-center">
-                                {estado === 'EXCEDIDO' ? (
-                                  <span className="inline-block text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 whitespace-nowrap">EXC</span>
+                                {mes.estado === 'EXCEDIDO' ? (
+                                  <span className="inline-block text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 whitespace-nowrap" title={`${mes.minutos.toLocaleString('es-VE')} min pendientes`}>EXC {mes.minutos.toLocaleString('es-VE')}</span>
                                 ) : (
-                                  <span className="inline-block text-[9px] font-medium px-1 py-0.5 rounded bg-green-100 text-green-700">OK</span>
+                                  <span className="inline-block text-[9px] font-medium px-1 py-0.5 rounded bg-green-100 text-green-700 whitespace-nowrap" title={`${mes.minutos.toLocaleString('es-VE')} min pendientes`}>OK {mes.minutos.toLocaleString('es-VE')}</span>
                                 )}
                               </td>
                             ))}
@@ -494,6 +605,106 @@ const ArrestosPage = () => {
                   </table>
                 </div>
               )
+            ) : activeTab === 'limites' ? (
+              <div className="p-6 space-y-6">
+                <div className="flex items-start gap-3 bg-blue-50/50 border border-blue-100 rounded-lg p-4">
+                  <Info size={16} className="text-blue-500 mt-0.5 shrink-0" />
+                  <div className="text-xs text-blue-700">
+                    <p className="font-semibold uppercase tracking-wider mb-1">Límites de minutos por condición</p>
+                    <p>
+                      Define cuántos minutos de arresto acumulados puede tener un bombero antes de marcarse como <strong>EXCEDIDO</strong>.
+                      Los valores por defecto son los del sistema; al guardar, se aplican de inmediato en la tarjeta personal,
+                      en <em>Balance</em>, en <em>Balance Anual</em> y en los reportes Excel/PDF.
+                    </p>
+                  </div>
+                </div>
+
+                {!puedeEditarLimites ? (
+                  <div className="p-6 text-center text-slate-500">
+                    No tienes permisos para modificar los límites.
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b bg-slate-50/50">
+                            <th className="px-4 py-3 text-left font-semibold text-slate-700">Condición</th>
+                            <th className="px-4 py-3 text-center font-semibold text-slate-700">Límite actual</th>
+                            <th className="px-4 py-3 text-center font-semibold text-slate-700">Valor por defecto</th>
+                            <th className="px-4 py-3 text-left font-semibold text-slate-700">Nuevo límite (minutos)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {(Object.keys(REGLAS_CONDICION) as (keyof typeof REGLAS_CONDICION)[]).map((cond) => {
+                            const actual = limitesCondicion?.[cond]?.maxMinutosArresto ?? REGLAS_CONDICION[cond].maxMinutosArresto;
+                            const porDefecto = REGLAS_CONDICION[cond].maxMinutosArresto;
+                            const editado = limitesVisibles[cond] !== String(actual);
+                            return (
+                              <tr key={cond} className="hover:bg-slate-50/50 transition-colors">
+                                <td className="px-4 py-3">
+                                  <Badge variant="outline" className="font-normal">{cond}</Badge>
+                                </td>
+                                <td className="px-4 py-3 text-center font-bold text-slate-700">
+                                  {actual.toLocaleString('es-VE')} min
+                                </td>
+                                <td className="px-4 py-3 text-center text-slate-400">
+                                  {porDefecto.toLocaleString('es-VE')} min
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2 max-w-xs">
+                                    <Input
+                                      type="number"
+                                      min={1}
+                                      step={1}
+                                      value={limitesVisibles[cond] ?? ''}
+                                      onChange={(e) => {
+                                        setLimitesMsg(null);
+                                        setLimitesDraft({ ...limitesVisibles, [cond]: e.target.value });
+                                      }}
+                                      className={cn(editado && 'border-primary ring-1 ring-primary/30')}
+                                    />
+                                    {editado && <span className="text-[10px] font-medium text-primary whitespace-nowrap">sin guardar</span>}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {limitesMsg && (
+                      <div className={cn(
+                        "flex items-center gap-2 text-sm rounded-lg border p-3",
+                        limitesMsg.tipo === 'ok'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                          : 'bg-red-50 border-red-200 text-red-700'
+                      )}>
+                        {limitesMsg.tipo === 'ok'
+                          ? <CheckCircle2 size={16} className="shrink-0" />
+                          : <AlertTriangle size={16} className="shrink-0" />}
+                        {limitesMsg.texto}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row justify-end gap-3 pt-2 border-t">
+                      <Button variant="outline" onClick={handleRestaurarLimites} className="flex items-center gap-2">
+                        <RotateCcw size={16} />
+                        Restaurar valores por defecto
+                      </Button>
+                      <Button
+                        onClick={handleGuardarLimites}
+                        disabled={saveLimitesMutation.isPending}
+                        className="flex items-center gap-2"
+                      >
+                        <Save size={16} />
+                        {saveLimitesMutation.isPending ? 'Guardando...' : 'Guardar Cambios'}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
             ) : activeTab === 'balance' ? (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -509,14 +720,14 @@ const ArrestosPage = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {balancesData.length === 0 ? (
+                    {filteredBalancesData.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
                           No se encontraron bomberos.
                         </td>
                       </tr>
                     ) : (
-                      balancesData.map((b) => (
+                      filteredBalancesData.map((b) => (
                         <tr key={b.uid} className={cn(
                           "hover:bg-slate-50/50 transition-colors",
                           b.excedido ? "bg-red-50/30" : ""
@@ -600,7 +811,7 @@ const ArrestosPage = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y">
-                      {historial.length === 0 ? (
+                      {filteredHistorial.length === 0 ? (
                         <tr>
                           <td
                             colSpan={
@@ -618,7 +829,7 @@ const ArrestosPage = () => {
                           </td>
                         </tr>
                       ) : (
-                        historial.map((arresto) => (
+                        filteredHistorial.map((arresto) => (
                           <tr key={arresto.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-4 py-3">
                               <div className="font-medium text-slate-900">

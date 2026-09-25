@@ -343,6 +343,16 @@ export const obtenerHistorialArrestos = async (req: Request, res: Response) => {
             docs = docs.filter((doc: any) => doc.estado !== excluirEstado);
         }
 
+        const search = req.query.search as string;
+        if (search) {
+            const term = search.toLowerCase();
+            docs = docs.filter((doc: any) => 
+                (doc.bomberoNombre && doc.bomberoNombre.toLowerCase().includes(term)) ||
+                (doc.motivo && doc.motivo.toLowerCase().includes(term)) ||
+                (doc.falta && doc.falta.toLowerCase().includes(term))
+            );
+        }
+
         const filteredTotalItems = docs.length;
 
         // Ordenamiento manual por fechaRegistro (más reciente primero)

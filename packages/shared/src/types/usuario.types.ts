@@ -16,3 +16,21 @@ export const REGLAS_CONDICION: Record<Condicion, { horasMensuales: number; maxMi
     'EGRESADO': { horasMensuales: 8, maxMinutosArresto: 3840 },
     'ESPECIAL_12H': { horasMensuales: 12, maxMinutosArresto: 5760 },
 };
+
+// Tipos de límites configurables (guardados en Firestore en configuracion/limites_condicion)
+export type LimitesCondicion = Partial<Record<Condicion, { maxMinutosArresto: number }>>;
+
+/**
+ * Resuelve las reglas de una condición aplicando los límites configurables
+ * (si existen) sobre los valores por defecto de REGLAS_CONDICION.
+ * Único punto de verdad para obtener el límite vigente de un bombero.
+ */
+export const resolverReglasCondicion = (
+    condicion: string | undefined,
+    limites?: LimitesCondicion | null
+): { horasMensuales: number; maxMinutosArresto: number } => {
+    const key: Condicion = (condicion && condicion in REGLAS_CONDICION ? condicion : 'REGULAR') as Condicion;
+    const base = REGLAS_CONDICION[key];
+    const custom = limites?.[key]?.maxMinutosArresto;
+    return typeof custom === 'number' ? { ...base, maxMinutosArresto: custom } : base;
+};

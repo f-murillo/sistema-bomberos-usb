@@ -205,6 +205,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
           <Select
             label="Jerarquía / Rango"
             options={[
+              { label: 'Brigadista', value: 'BRIGADISTA' },
               { label: 'Aspirante / Alumno', value: 'ASP/ALUM' },
               { label: 'Bombero Raso', value: 'BOMBERO_RASO' },
               { label: 'Distinguido', value: 'DISTINGUIDO' },
@@ -214,6 +215,7 @@ const UsuarioForm = ({ usuario, onSuccess, onCancel }: UsuarioFormProps) => {
               { label: 'Sargento Primero', value: 'SARGENTO_PRIMERO' },
               { label: 'Sargento Mayor', value: 'SARGENTO_MAYOR' },
               { label: 'Teniente', value: 'TENIENTE' },
+              { label: 'Primer Teniente', value: 'PRIMER_TENIENTE' },
               { label: 'Capitán', value: 'CAPITAN' },
               { label: 'Mayor', value: 'MAYOR' },
               { label: 'Teniente Coronel', value: 'TENIENTE_CORONEL' },

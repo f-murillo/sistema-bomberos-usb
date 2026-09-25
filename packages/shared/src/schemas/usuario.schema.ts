@@ -12,6 +12,7 @@ export const RangoSchema = z.enum([
     'SARGENTO_SEGUNDO',
     'SARGENTO_MAYOR',
     'TENIENTE',
+    'PRIMER_TENIENTE',
     'CAPITAN',
     'MAYOR',
     'TENIENTE_CORONEL',

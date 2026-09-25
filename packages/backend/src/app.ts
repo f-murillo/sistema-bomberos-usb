@@ -8,6 +8,7 @@ import guardiaRoutes from './modules/guardias/guardias.routes';
 import notificacionRoutes from './modules/notificaciones/notificaciones.routes';
 import auditoriaRoutes from './modules/auditoria/auditoria.routes';
 import arrestoRoutes from './modules/arrestos/arrestos.routes';
+import configRoutes from './modules/config/config.routes';
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.use('/guardias', guardiaRoutes);
 app.use('/notificaciones', notificacionRoutes);
 app.use('/auditoria', auditoriaRoutes);
 app.use('/arrestos', arrestoRoutes);
+app.use('/config', configRoutes);
 
 // Ruta de prueba
 app.get('/health', (req,res) =>{

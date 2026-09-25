@@ -128,7 +128,8 @@ const AuditoriaPage = () => {
       'REPORTAR_PAGO_ARRESTO': 'Reportar Pago',
       'REVISAR_PAGO_ARRESTO': 'Revisar Pago',
       'EDITAR_ARRESTO': 'Editar Arresto',
-      'ELIMINAR_ARRESTO': 'Eliminar Arresto'
+      'ELIMINAR_ARRESTO': 'Eliminar Arresto',
+      'ACTUALIZAR_LIMITES': 'Cambiar Límites'
     };
     return labels[action] || action;
   };
@@ -155,6 +156,15 @@ const AuditoriaPage = () => {
     if (accion === 'REVISAR_PAGO_ARRESTO') return `Se ${detalles?.estado === 'PAGADO' ? 'aprobó' : 'rechazó'} la validación de un pago`;
     if (accion === 'EDITAR_ARRESTO') return `Se modificaron los detalles de un registro de arresto`;
     if (accion === 'ELIMINAR_ARRESTO') return `Se eliminó permanentemente un registro de arresto`;
+
+    // Configuración de límites
+    if (accion === 'ACTUALIZAR_LIMITES') {
+      const cambios = detalles?.cambios || {};
+      const partes = Object.keys(cambios).map(c => `${c}: ${cambios[c].de} → ${cambios[c].a} min`);
+      return partes.length
+        ? `Se actualizaron los límites de minutos (${partes.join(', ')})`
+        : `Se actualizaron los límites de minutos por condición`;
+    }
     
     return 'Acción realizada en el sistema';
   };
