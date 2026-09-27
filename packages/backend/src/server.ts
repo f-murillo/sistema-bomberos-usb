@@ -1,5 +1,5 @@
 import app from './app';
-import { startDailyGuardiasReminderCron, startAuditCleanupCron } from './cron/jobs';
+import { startDailyGuardiasReminderCron, startAuditCleanupCron, startNotificationsCleanupCron } from './cron/jobs';
 
 const PORT = process.env.PORT || 3000;
 
@@ -9,4 +9,5 @@ app.listen(PORT, () =>{
     // Iniciar tareas programadas (CRON)
     startDailyGuardiasReminderCron();
     startAuditCleanupCron();
+    startNotificationsCleanupCron();
 });

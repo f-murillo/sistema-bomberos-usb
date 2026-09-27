@@ -1,5 +1,6 @@
 import { db } from "../../config/firebase";
 import { Notificacion } from "@bomberos-usb/shared";
+import { eliminarEnChunks, actualizarEnChunks } from "../../utils/batch";
 
 /**
  * Servicio centralizado para gestionar las notificaciones del sistema (In-App).
@@ -80,10 +81,9 @@ export const NotificacionService = {
       const snapshot = await db.collection("notificaciones")
         .where("usuarioId", "==", usuarioId)
         .get();
-      
-      const batch = db.batch();
-      snapshot.docs.forEach(doc => batch.delete(doc.ref));
-      await batch.commit();
+
+      // Firebase limita cada batch a 500 operaciones → troceado centralizado en utils/batch
+      await eliminarEnChunks(snapshot.docs);
     } catch (error) {
       console.error("Error al eliminar todas las notificaciones:", error);
       throw error;
@@ -99,15 +99,12 @@ export const NotificacionService = {
         .where("usuarioId", "==", usuarioId)
         .where("leida", "==", false)
         .get();
-      
-      const batch = db.batch();
-      snapshot.docs.forEach(doc => {
-        batch.update(doc.ref, { 
-          leida: true,
-          fechaActualizacion: new Date()
-        });
+
+      // Firebase limita cada batch a 500 operaciones → troceado centralizado en utils/batch
+      await actualizarEnChunks(snapshot.docs, {
+        leida: true,
+        fechaActualizacion: new Date()
       });
-      await batch.commit();
     } catch (error) {
       console.error("Error al marcar todas como leídas:", error);
       throw error;

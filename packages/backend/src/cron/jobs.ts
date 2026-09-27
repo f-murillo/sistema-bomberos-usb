@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { db } from '../config/firebase';
 import { NotificacionService } from '../modules/notificaciones/notificaciones.service';
+import { eliminarEnChunks } from '../utils/batch';
 
 /**
  * Tarea 1: Recordatorio Diario de Guardias
@@ -81,13 +82,7 @@ export const runAuditCleanup = async () => {
 
     console.log(`[SISTEMA] Auditoría: Se encontraron ${snapshot.size} registros obsoletos.`);
 
-    const docs = snapshot.docs;
-    for (let i = 0; i < docs.length; i += 500) {
-      const batch = db.batch();
-      const chunk = docs.slice(i, i + 500);
-      chunk.forEach(doc => batch.delete(doc.ref));
-      await batch.commit();
-    }
+    await eliminarEnChunks(snapshot.docs);
 
     console.log(`[SISTEMA] Auditoría: Limpieza completada exitosamente. Se eliminaron ${snapshot.size} registros.`);
   } catch (error) {
@@ -103,6 +98,52 @@ export const startAuditCleanupCron = () => {
   runAuditCleanup();
   cron.schedule('0 0 * * *', async () => {
     runAuditCleanup();
+  });
+};
+
+/**
+ * Limpieza de notificaciones vencidas
+ * La notificación es estado transitorio de la campana (se muestran las últimas 20
+ * y abrirla marca todo como leído), no un registro histórico: se conservan
+ * DIAS_RETENCION_NOTIFICACIONES desde su creación y luego se eliminan.
+ */
+const DIAS_RETENCION_NOTIFICACIONES = 30;
+
+export const runNotificationsCleanup = async () => {
+  try {
+    const limite = new Date();
+    limite.setDate(limite.getDate() - DIAS_RETENCION_NOTIFICACIONES);
+
+    const snapshot = await db.collection("notificaciones")
+      .where("fechaCreacion", "<", limite)
+      .get();
+
+    if (snapshot.empty) {
+      console.log('[SISTEMA] Notificaciones: No hay notificaciones vencidas para eliminar.');
+      return;
+    }
+
+    console.log(`[SISTEMA] Notificaciones: Se encontraron ${snapshot.size} notificaciones vencidas.`);
+
+    await eliminarEnChunks(snapshot.docs);
+
+    console.log(`[SISTEMA] Notificaciones: Limpieza completada. Se eliminaron ${snapshot.size} notificaciones.`);
+  } catch (error) {
+    // No se relanza: un fallo aquí no debe impedir el arranque del servidor
+    console.error("[SISTEMA Error] Notifications Cleanup:", error);
+  }
+};
+
+/**
+ * Tarea 3: Limpieza automática de notificaciones vencidas
+ * Se ejecuta al arranque (en Render free la instancia duerme y el cron de
+ * madrugada no siempre llega a dispararse) y luego diariamente a la 01:00
+ * del servidor (UTC), que son las 21:00 en Venezuela.
+ */
+export const startNotificationsCleanupCron = () => {
+  runNotificationsCleanup();
+  cron.schedule('0 1 * * *', async () => {
+    runNotificationsCleanup();
   });
 };
 

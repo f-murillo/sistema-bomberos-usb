@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { db } from "../../config/firebase";
 import { registrarAuditoria } from "../../utils/auditoria";
+import { eliminarEnChunks } from "../../utils/batch";
 
 export const obtenerLogs = async (req: Request, res: Response) => {
   try {
@@ -63,18 +64,8 @@ export const eliminarLogs = async (req: Request, res: Response) => {
       return res.status(200).json({ message: "No se encontraron logs en el rango especificado", eliminados: 0 });
     }
 
-    // Firebase Batch tiene un límite de 500 operaciones
-    const chunks = [];
-    const docs = snapshot.docs;
-    for (let i = 0; i < docs.length; i += 500) {
-      chunks.push(docs.slice(i, i + 500));
-    }
-
-    for (const chunk of chunks) {
-      const batch = db.batch();
-      chunk.forEach(doc => batch.delete(doc.ref));
-      await batch.commit();
-    }
+    // Firebase limita cada batch a 500 operaciones → troceado centralizado en utils/batch
+    await eliminarEnChunks(snapshot.docs);
 
     const adminId = (req as any).user?.uid || "SISTEMA";
     await registrarAuditoria('ELIMINAR_LOGS', 'auditoria', 'varios', adminId, { desde, hasta, cantidad: snapshot.size });
