@@ -4,7 +4,7 @@ import { UsuarioSchema, PasswordChangeSchema, SolicitarResetPasswordSchema } fro
 import { db, auth, admin } from "../../config/firebase";
 import { registrarAuditoria } from "../../utils/auditoria";
 import { NotificacionService } from "../notificaciones/notificaciones.service";
-import { EmailService } from "../notificaciones/email.service";
+import { EmailService, FRONTEND_URL } from "../notificaciones/email.service";
 
 // CRUD para los usuarios
 // Crear de un usuario (C)
@@ -384,7 +384,7 @@ export const solicitarResetPassword = async (req: Request, res: Response) => {
 
         // Configurar el enlace de restablecimiento que Firebase redirigirá al frontend
         const actionCodeSettings = {
-            url: "https://sistema-bomberos-usb.web.app/reset-password",
+            url: `${FRONTEND_URL}/reset-password`,
             handleCodeInApp: true
         };
 

@@ -16,7 +16,10 @@ oauth2Client.setCredentials({
     refresh_token: process.env.GOOGLE_REFRESH_TOKEN
 });
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+// URL pública del frontend que se usa en los enlaces dentro de los correos.
+// En Render debe venir de la variable FRONTEND_URL; si no está definida se usa
+// la de producción, para que un correo jamás termine apuntando a localhost.
+export const FRONTEND_URL = process.env.FRONTEND_URL || 'https://sistema-bomberos-usb.web.app';
 const FROM_EMAIL = process.env.SMTP_FROM || '"Sistema Bomberos USB" <bomberos.usb.gestion@gmail.com>';
 
 interface EmailOptions {
